@@ -13,7 +13,7 @@ function _is_active($file, $current) { return $file === $current ? 'active' : ''
     ?>
     <?php // user info moved to header for top-right display ?>
 
-    <div class="nav-links" style="padding-top: 15px;">
+    <div class="nav-links">
         <?php if (_has_access('dashboard_view')): ?>
         <a class="<?= _is_active('dashboard.php', $current) ?>" href="dashboard.php"><i class="fas fa-chart-line"></i><span class="navbar-label">Dashboard</span></a>
         <?php endif; ?>
