@@ -16,12 +16,12 @@ if (!empty($_SESSION['user']['force_password_reset']) && !in_array($currentScrip
     <meta charset="utf-8">
     <title><?= htmlspecialchars($pageTitle ?? 'App') ?></title>
     <!-- Site favicon (white logo) - provide multiple sizes so browsers can choose larger icons -->
-    <link rel="icon" type="image/webp" href="assets/White-Bugatti-Logo.webp" sizes="32x32">
-    <link rel="icon" type="image/webp" href="assets/White-Bugatti-Logo.webp" sizes="64x64">
+    <link rel="icon" type="image/webp" href="/public/assets/White-Bugatti-Logo.webp" sizes="32x32">
+    <link rel="icon" type="image/webp" href="/public/assets/White-Bugatti-Logo.webp" sizes="64x64">
     <link rel="shortcut icon" href="assets/White-Bugatti-Logo.webp">
     <!-- PNG fallback (if you prefer a PNG at various sizes, place files in public/assets and update the paths) -->
-    <link rel="icon" type="image/png" href="assets/White-Bugatti-Logo.png" sizes="32x32">
-    <link rel="icon" type="image/png" href="assets/White-Bugatti-Logo.png" sizes="64x64">
+    <link rel="icon" type="image/png" href="/public/assets/White-Bugatti-Logo.png" sizes="32x32">
+    <link rel="icon" type="image/png" href="/public/assets/White-Bugatti-Logo.png" sizes="64x64">
     <!-- existing meta / css links -->
     <!-- Font Awesome (fallback) -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" integrity="sha512-..." crossorigin="anonymous" referrerpolicy="no-referrer" />
