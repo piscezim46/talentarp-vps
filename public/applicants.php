@@ -41,7 +41,7 @@ $flash_type = $_GET['type'] ?? '';
 
 // load applicant statuses from DB so the filter reflects canonical values
 $filter_statuses = [];
-$st_stmt = $conn->prepare("SELECT status_id, status_name FROM applicants_status ORDER BY status_id");
+$st_stmt = $conn->prepare("SELECT status_id, status_name FROM applicants_status WHERE active = 1 ORDER BY COALESCE(sort_order, status_id) ASC, status_name ASC");
 if ($st_stmt) {
   $st_stmt->execute();
   $st_res = $st_stmt->get_result();
@@ -59,13 +59,27 @@ while ($r = $roles_result->fetch_assoc()) {
     $filter_roles[] = $r['role_applied'];
 }
 
-$filter_departments = []; 
-$dept_stmt = $conn->prepare("SELECT DISTINCT department FROM positions WHERE department IS NOT NULL AND department <> ''"); 
-$dept_stmt->execute(); 
-$dept_result = $dept_stmt->get_result(); 
-while ($d = $dept_result->fetch_assoc()) { 
-    $filter_departments[] = $d['department']; 
-} 
+// Departments should reflect the canonical departments table and only active ones
+$filter_departments = [];
+$dept_stmt = $conn->prepare("SELECT department_name FROM departments WHERE active = 1 ORDER BY department_name ASC");
+if ($dept_stmt) {
+  $dept_stmt->execute();
+  $dept_result = $dept_stmt->get_result();
+  while ($d = $dept_result->fetch_assoc()) {
+    $filter_departments[] = $d['department_name'];
+  }
+}
+
+// Teams: prefer teams table active entries so updates are reflected in filters
+$filter_teams = [];
+$team_stmt = $conn->prepare("SELECT DISTINCT team_name FROM teams WHERE active = 1 AND team_name IS NOT NULL AND team_name <> '' ORDER BY team_name ASC");
+if ($team_stmt) {
+  $team_stmt->execute();
+  $team_res = $team_stmt->get_result();
+  while ($t = $team_res->fetch_assoc()) {
+    $filter_teams[] = $t['team_name'];
+  }
+}
 
 // distinct ages, genders, nationalities for header multi-select filters
 $filter_ages = [];
@@ -80,16 +94,31 @@ $filter_nationalities = [];
 $n_res = $conn->query("SELECT DISTINCT COALESCE(NULLIF(TRIM(nationality),''),'') AS nat FROM applicants WHERE nationality IS NOT NULL ORDER BY nat");
 if ($n_res) { while ($nn = $n_res->fetch_assoc()) { if ($nn['nat'] !== '') $filter_nationalities[] = $nn['nat']; } $n_res->free(); }
 
-// Managers list (from users table) 
-$filter_managers = []; 
-// Use role_id -> join roles table to find manager/admin/hr users (old `role` column removed)
-$mgr_stmt = $conn->prepare("SELECT u.id, u.name FROM users u JOIN roles r ON u.role_id = r.role_id WHERE r.role_name IN ('manager','admin','hr')"); 
+// Managers list: include active users with manager/admin/hr roles and any manager names referenced by teams/positions
+$filter_managers = [];
+$mgr_names = [];
+$mgr_stmt = $conn->prepare("SELECT DISTINCT u.name FROM users u JOIN roles r ON u.role_id = r.role_id WHERE r.role_name IN ('manager','admin','hr') AND COALESCE(u.active,1) = 1 ORDER BY u.name");
 if ($mgr_stmt) {
-  $mgr_stmt->execute(); 
-  $mgr_res = $mgr_stmt->get_result(); 
-  while ($m = $mgr_res->fetch_assoc()) { 
-      $filter_managers[$m['id']] = $m['name']; 
+  $mgr_stmt->execute();
+  $mgr_res = $mgr_stmt->get_result();
+  while ($m = $mgr_res->fetch_assoc()) {
+    $n = trim($m['name'] ?? ''); if ($n !== '') $mgr_names[$n] = $n;
   }
+}
+// include manager_name from teams table
+if ($tres = $conn->query("SELECT DISTINCT COALESCE(NULLIF(TRIM(manager_name),''),'') AS mgr FROM teams WHERE manager_name IS NOT NULL")) {
+  while ($r = $tres->fetch_assoc()) { $n = trim($r['mgr'] ?? ''); if ($n !== '') $mgr_names[$n] = $n; }
+  $tres->free();
+}
+// include manager_name from positions table
+if ($pres = $conn->query("SELECT DISTINCT COALESCE(NULLIF(TRIM(manager_name),''),'') AS mgr FROM positions WHERE manager_name IS NOT NULL")) {
+  while ($r = $pres->fetch_assoc()) { $n = trim($r['mgr'] ?? ''); if ($n !== '') $mgr_names[$n] = $n; }
+  $pres->free();
+}
+// final list sorted
+if (count($mgr_names)) {
+  ksort($mgr_names, SORT_NATURAL|SORT_FLAG_CASE);
+  $filter_managers = array_values($mgr_names);
 }
 
     // small helpers for status colors (applicants palette — different from positions)
@@ -280,6 +309,8 @@ document.addEventListener('DOMContentLoaded', function(){
 <link rel="stylesheet" href="styles/layout.css">
 <link rel="stylesheet" href="styles/view_positions.css">
 <link rel="stylesheet" href="styles/applicants.css">
+<script src="assets/js/notify.js"></script>
+<link rel="stylesheet" href="styles/users.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <link rel="preconnect" href="https://fonts.gstatic.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
@@ -295,8 +326,8 @@ document.addEventListener('DOMContentLoaded', function(){
     <!-- Filters moved into table header for compact layout -->
 
     <div class="widget"> 
-        <div class="widget-header positions-header-row">
-          <div class="page-title"><i class="fa-solid fa-users"></i> Applicants</div>
+      <div class="widget-header positions-header-row">
+          <div class="page-title"></i> Applicants</div>
           <div class="header-actions">
             <?php $can_create = in_array('applicants_create', $_SESSION['user']['access_keys'] ?? []) || in_array($user['role'], ['admin','hr']); ?>
             <button id="openCreateApplicantBtn" class="btn primary btn-primary btn-create <?= $can_create ? '' : 'disabled' ?>" <?php if (! $can_create) echo 'disabled title="Insufficient permissions" aria-disabled="true"'; ?> data-open-create="1"><i class="fa-solid fa-user-plus"></i> Create Applicant</button>
@@ -333,14 +364,14 @@ document.addEventListener('DOMContentLoaded', function(){
 
                 <select id="f-team">
                   <option value="">All Teams</option>
-                  <?php foreach ($team_list as $tname): ?>
+                  <?php foreach ($filter_teams as $tname): ?>
                     <option value="<?= htmlspecialchars(strtolower($tname)) ?>"><?= htmlspecialchars($tname) ?></option>
                   <?php endforeach; ?>
                 </select>
 
                 <select id="f-manager">
                   <option value="">All Managers</option>
-                  <?php foreach ($filter_managers as $mid => $mname): ?>
+                  <?php foreach ($filter_managers as $mname): ?>
                     <option value="<?= htmlspecialchars(strtolower($mname)) ?>"><?= htmlspecialchars($mname) ?></option>
                   <?php endforeach; ?>
                 </select>
@@ -350,12 +381,16 @@ document.addEventListener('DOMContentLoaded', function(){
                 <input id="f-date-from" type="date" title="Created from" />
                 <input id="f-date-to" type="date" title="Created to" />
 
-                <button id="clearFilters" class="btn primary btn-primary">Clear Filters</button>
+                <button id="clearFilters" class="btn primary" style="color: white;">Clear Filters</button>
+                <button id="bulkUpdateStatusBtn" class="btn-bulk" type="button"><i class="fa-solid fa-arrows-up-down"></i> Bulk Update Status</button>
               </div>
           </div>
         </div>
 
-        <table> 
+        <!-- two-column layout: left = scrollable list, right = detail card -->
+        <div class="app-layout">
+          <div class="app-list">
+              <table class="users-table">
       <thead>
         <tr>
           <th class="col-select"><input type="checkbox" id="selectAllApplicants" title="Select all"></th>
@@ -451,7 +486,9 @@ document.addEventListener('DOMContentLoaded', function(){
         </tr>
       <?php endwhile; ?>
       </tbody>
-        </table> 
+              </table>
+          </div><!-- .app-list -->
+        </div><!-- .app-layout -->
     </div> 
 </div> 
 
@@ -557,7 +594,7 @@ document.addEventListener('DOMContentLoaded', function(){
   if (selectAll) {
     selectAll.addEventListener('change', function(){
       const checked = !!this.checked;
-      Array.from(tbody.querySelectorAll('.app-select')).forEach(cb => { cb.checked = checked; });
+      Array.from(tbody.querySelectorAll('.app-select')).forEach(cb => { cb.checked = checked; try { cb.dispatchEvent(new Event('change',{bubbles:true})); } catch(e){} });
     });
   }
 
@@ -1049,17 +1086,15 @@ document.addEventListener('DOMContentLoaded', function () {
 
   async function openApplicant(id) {
     const ov = ensureViewer();
-    const content = ov.querySelector('#appViewerContent');
-    if (content) content.innerHTML = '<div class="loading-placeholder">Loading...</div>';
+    const modalContent = ov.querySelector('#appViewerContent');
+    if (modalContent) modalContent.innerHTML = '<div class="loading-placeholder">Loading...</div>';
     openViewer();
-
     try {
       const res = await fetch('get_applicant.php?applicant_id=' + encodeURIComponent(id), { credentials: 'same-origin' });
       const html = await res.text();
-      if (content) content.innerHTML = html;
-
+      if (modalContent) modalContent.innerHTML = html;
       // execute inline scripts returned in fragment
-      if (content) Array.from(content.querySelectorAll('script')).forEach(function (s) {
+      if (modalContent) Array.from(modalContent.querySelectorAll('script')).forEach(function (s) {
         const ns = document.createElement('script');
         if (s.src) {
           ns.src = s.src; ns.async = false; document.body.appendChild(ns); ns.onload = function () { ns.remove(); };
@@ -1071,12 +1106,18 @@ document.addEventListener('DOMContentLoaded', function () {
       });
     } catch (e) {
       console.error('openApplicant failed', e);
+      if (modalContent) modalContent.innerHTML = '<div class="muted">Unable to load applicant details</div>';
     }
   }
 
   // Delegated click handler for table rows (.app-row)
+  // Exclude clicks on checkbox/select column so users can select rows
   document.addEventListener('click', function (e) {
     try {
+      // If click is inside a checkbox, col-select cell, or the checkbox itself, ignore it
+      if (e.target && (e.target.type === 'checkbox' || e.target.classList.contains('app-select') || e.target.closest('.col-select'))) {
+        return;
+      }
       const row = e.target && e.target.closest && e.target.closest('.app-row');
       if (!row) return;
       const id = row.getAttribute('data-applicant-id') || row.getAttribute('data-id') || row.dataset.applicantId;
@@ -1088,6 +1129,156 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   });
 });
+</script>
+
+<script>
+// Bulk update status UI + flow
+(function(){
+  function getEl(id){ return document.getElementById(id); }
+
+  // Ensure notify.js is loaded and Notify.push is available.
+  function ensureNotify(){
+    if (window.Notify && typeof window.Notify.push === 'function') return Promise.resolve();
+    return new Promise((resolve) => {
+      try {
+        var s = document.createElement('script');
+        s.src = 'assets/js/notify.js';
+        s.async = true;
+        s.onload = function(){ setTimeout(resolve, 50); };
+        s.onerror = function(){ console.warn('Failed to load notify.js'); resolve(); };
+        document.head.appendChild(s);
+      } catch (e) { console.warn('ensureNotify error', e); resolve(); }
+    });
+  }
+
+  function openModal(selectedIds){
+    const modal = getEl('bulkUpdateModal');
+    if (!modal) return;
+    const countText = getEl('bulkCountText');
+    const statusSelect = getEl('bulkStatusSelect');
+    const confirmBtn = getEl('bulkUpdateConfirm');
+    modal.style.display = 'flex';
+    modal.setAttribute('aria-hidden','false');
+    if (countText) countText.textContent = `Selected ${selectedIds.length} applicants.`;
+    if (statusSelect) statusSelect.value = '';
+    if (confirmBtn) confirmBtn.disabled = false;
+  }
+
+  function closeModal(){
+    const modal = getEl('bulkUpdateModal');
+    if (!modal) return; modal.style.display='none'; modal.setAttribute('aria-hidden','true');
+  }
+
+  const bulkBtn = getEl('bulkUpdateStatusBtn');
+  if (bulkBtn) {
+    // Update visual state of bulk button based on selection count.
+    function updateBulkBtnState() {
+      try {
+        const ids = window.getSelectedApplicantIds ? window.getSelectedApplicantIds() : Array.from(document.querySelectorAll('.app-select:checked')).map(cb => cb.dataset.id).filter(Boolean);
+        if (!ids || ids.length === 0) {
+          bulkBtn.classList.add('is-disabled');
+          bulkBtn.setAttribute('aria-disabled', 'true');
+        } else {
+          bulkBtn.classList.remove('is-disabled');
+          bulkBtn.setAttribute('aria-disabled', 'false');
+        }
+      } catch (e) { console.warn('updateBulkBtnState error', e); }
+    }
+
+    // Hook selection checkbox changes to update button state
+    document.addEventListener('change', function(e){
+      try {
+        if (e.target && (e.target.classList && e.target.classList.contains('app-select'))) updateBulkBtnState();
+        if (e.target && e.target.id === 'selectAllApplicants') updateBulkBtnState();
+      } catch (err) { console.error(err); }
+    }, true);
+
+    // Run once on init
+    try { updateBulkBtnState(); } catch(e){}
+
+    bulkBtn.addEventListener('click', function(ev){
+      // If visually disabled, do nothing (preserve hover/jump animation but prevent action).
+      if (bulkBtn.getAttribute('aria-disabled') === 'true' || bulkBtn.classList.contains('is-disabled')) {
+        ev && ev.preventDefault && ev.preventDefault();
+        return;
+      }
+      const ids = window.getSelectedApplicantIds ? window.getSelectedApplicantIds() : [];
+      if (!ids.length) return;
+      openModal(ids);
+    });
+  }
+
+  // close handlers for cancel/close buttons (modal may be added later)
+  document.addEventListener('click', function(e){
+    const target = e.target;
+    if (!target) return;
+    if (target.id === 'bulkUpdateClose' || target.id === 'bulkUpdateCancel') closeModal();
+  });
+
+  // confirm button action (resolve elements lazily)
+  const confirmBtn = getEl('bulkUpdateConfirm');
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', async function(){
+      const statusSelect = getEl('bulkStatusSelect');
+      const statusId = parseInt((statusSelect && statusSelect.value) || 0, 10);
+      const ids = window.getSelectedApplicantIds ? window.getSelectedApplicantIds() : [];
+      if (!ids.length) { closeModal(); return; }
+      if (!statusId) {
+        ensureNotify().then(function(){ if (window.Notify && Notify.push) Notify.push({ from:'Applicants', message: 'Select a status', color:'#dc2626' }); else console.warn('Notify.push not available: Select a status'); });
+        return;
+      }
+      confirmBtn.disabled = true;
+      const countText = getEl('bulkCountText');
+      if (countText) countText.textContent = `Applying status to ${ids.length} applicants...`;
+
+      let updated = 0, skipped = 0, failed = 0;
+      for (let i = 0; i < ids.length; i++) {
+        const aid = ids[i];
+        try {
+          const fd = new FormData();
+          fd.append('applicant_id', aid);
+          fd.append('status_id', statusId);
+          fd.append('status_reason', 'Bulk update');
+          const res = await fetch('update_applicant.php', { method: 'POST', body: fd, credentials: 'same-origin' });
+          const json = await res.json().catch(()=>({ ok:false, error:'Invalid response' }));
+          if (json && json.ok) {
+            if (json.affected_rows && parseInt(json.affected_rows,10) > 0) {
+              updated++;
+              try {
+                const row = document.querySelector('.app-row[data-applicant-id="' + aid + '"]');
+                if (row) {
+                  row.dataset.statusId = statusId;
+                  const pill = row.querySelector('td:nth-child(3) .pill');
+                  if (pill) pill.textContent = (json.applicant && json.applicant.status_name) ? json.applicant.status_name : pill.textContent;
+                }
+              } catch(e){}
+            } else {
+              skipped++;
+            }
+          } else {
+            if (json && json.error && /(Transition not allowed|already in this status)/i.test(json.error)) skipped++;
+            else failed++;
+          }
+        } catch (err) {
+          console.error('bulk update failed for', aid, err);
+          failed++;
+        }
+      }
+
+      closeModal();
+      const total = ids.length;
+      const msg = `Bulk update complete — updated ${updated} of ${total} selected.` + (skipped ? ` Skipped: ${skipped}.` : '') + (failed ? ` Failed: ${failed}.` : '');
+      ensureNotify().then(function(){ if (window.Notify && Notify.push) Notify.push({ from:'Applicants', message: msg, color: failed ? '#dc2626' : '#10b981', duration: 8000 }); else console.warn('Notify.push not available for bulk summary'); });
+    });
+  }
+
+  // click outside modal to close
+  document.addEventListener('click', function(e){
+    const modal = getEl('bulkUpdateModal');
+    if (!modal) return; if (e.target === modal) closeModal();
+  });
+
+})();
 </script>
 
 <script>
@@ -1145,6 +1336,33 @@ document.addEventListener('DOMContentLoaded', function(){
   }
 });
 </script>
+
+<!-- Bulk Update Status Modal -->
+<div id="bulkUpdateModal" class="modal-overlay" aria-hidden="true">
+  <div class="modal-card" role="dialog" aria-modal="true">
+    <button type="button" class="modal-close" id="bulkUpdateClose">×</button>
+    <h3 id="bulkUpdateTitle">Bulk Update Applicant Status</h3>
+    <div id="bulkUpdateBody">
+      <p class="muted" id="bulkCountText">Preparing...</p>
+      <div class="field">
+        <label for="bulkStatusSelect">Move selected applicants to</label>
+        <select id="bulkStatusSelect" class="modal-input">
+          <option value="">-- Select status --</option>
+          <?php foreach ($filter_statuses as $st): ?>
+            <option value="<?= (int)$st['status_id'] ?>"><?= htmlspecialchars($st['status_name']) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+        <div class="field" style="margin-top:12px;">
+          <div class="muted">Note: If no valid transition exists for an applicant, that applicant will be skipped. Successful updates will be reported after the operation.</div>
+        </div>
+    </div>
+    <div class="modal-actions">
+      <button id="bulkUpdateCancel" class="btn">Cancel</button>
+      <button id="bulkUpdateConfirm" class="btn primary btn-primary">Confirm</button>
+    </div>
+  </div>
+</div>
 
 </body> 
 </html>

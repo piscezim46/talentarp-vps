@@ -60,7 +60,8 @@ $positions_json = json_encode($positions, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QU
 $departments_json = json_encode($departments, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP);
 $teams_json = json_encode($teams_by_dept, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP);
 ?>
-<link rel="stylesheet" href="styles/view_applicants.css">
+<link rel="stylesheet" href="styles/applicants.css">
+<link rel="stylesheet" href="styles/users.css">
 
 <!-- Create Applicant Modal -->
 <div id="createApplicantModal" class="modal-overlay" style="display:none;">
@@ -80,8 +81,8 @@ $teams_json = json_encode($teams_by_dept, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QU
         </select>
       </div>
 
-      <div class="field inline" style="gap:10px;">
-        <div style="flex:1">
+      <div class="field inline">
+        <div>
           <label>Department</label>
           <select id="ap_department" name="department_id" class="modal-input">
             <option value="">-- Select Department --</option>
@@ -90,13 +91,13 @@ $teams_json = json_encode($teams_by_dept, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QU
             <?php endforeach; ?>
           </select>
         </div>
-        <div style="flex:1">
+        <div>
           <label>Team</label>
           <select id="ap_team" name="team_id" class="modal-input" disabled>
             <option value="">Select department first</option>
           </select>
         </div>
-        <div style="flex:1">
+        <div>
           <label>Manager</label>
           <input id="ap_manager_display" type="text" disabled class="modal-input" value="Unassigned">
           <input type="hidden" name="manager_name" id="ap_manager_name" value="">
@@ -109,7 +110,7 @@ $teams_json = json_encode($teams_by_dept, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QU
         <div class="small-muted">Select multiple PDFs. One applicant record will be created per PDF.</div>
       </div>
 
-      <div class="modal-actions" style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+      <div class="modal-actions">
         <button type="button" id="cancelCreateApplicant" class="btn">Cancel</button>
         <button type="submit" class="btn primary">Create</button>
       </div>
@@ -194,26 +195,38 @@ document.addEventListener('DOMContentLoaded', function(){
 });
 </script>
 
-<!-- Applicants grid -->
+<!-- Applicants list (table style to match Users page) -->
 <main class="content-area">
   <h2 class="page-title">Applicants</h2>
-  <div id="applicantsGrid">
-    <?php foreach ($applicants as $a): ?>
-      <?php $aid = (int)$a['applicant_id']; $name = htmlspecialchars($a['full_name'] ?? '—'); $stat = htmlspecialchars($a['status'] ?? ''); $created = htmlspecialchars($a['created_at'] ?? ''); ?>
-      <article class="applicant-card" data-id="<?= $aid ?>">
-        <div class="app-card-row">
-          <div>
-            <div class="name"><?= $name ?></div>
-            <div class="meta">#<?= $aid ?> · <?= $created ?></div>
-          </div>
-          <div style="text-align:right;">
-            <div class="status-pill"><?= $stat ?></div>
-          </div>
-        </div>
-        <div style="margin-top:8px;color:#bbb;">Email: <?= htmlspecialchars($a['email'] ?? '—') ?></div>
-        <div style="margin-top:6px;color:#bbb;">Phone: <?= htmlspecialchars($a['phone'] ?? '—') ?></div>
-      </article>
-    <?php endforeach; ?>
+
+  <div class="widget app-list">
+    <div class="table-scroll">
+      <table class="users-table" id="applicantsTable">
+        <thead>
+          <tr>
+            <th class="sortable" data-sort="id">ID</th>
+            <th class="sortable" data-sort="name">Name</th>
+            <th class="sortable" data-sort="email">Email</th>
+            <th class="sortable" data-sort="phone">Phone</th>
+            <th class="sortable" data-sort="created_at">Created At</th>
+            <th class="sortable" data-sort="status">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php foreach ($applicants as $a): ?>
+            <?php $aid = (int)$a['applicant_id']; $name = htmlspecialchars($a['full_name'] ?? '—'); $stat = htmlspecialchars($a['status'] ?? ''); $created = htmlspecialchars($a['created_at'] ?? ''); $email = htmlspecialchars($a['email'] ?? '—'); $phone = htmlspecialchars($a['phone'] ?? '—'); ?>
+            <tr class="app-row" data-id="<?= $aid ?>" tabindex="0" data-created-at="<?= $created ?>">
+              <td class="col-id"><?= $aid ?></td>
+              <td class="users-col-name"><?= $name ?></td>
+              <td class="users-col-email"><?= $email ?></td>
+              <td class="users-col-phone"><?= $phone ?></td>
+              <td class="users-col-created"><?= $created ?></td>
+              <td class="users-col-status"><?= $stat ?></td>
+            </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
   </div>
 </main>
 
@@ -230,26 +243,9 @@ document.addEventListener('DOMContentLoaded', function () {
     ov.id = 'applicantViewerModal';
     ov.className = 'modal-overlay';
     ov.setAttribute('aria-hidden', 'true');
-  ov.innerHTML = '<div class="modal-card"><div class="modal-header"><h3 id="appViewerTitle" style="margin:0;">Applicant</h3><button type="button" class="modal-close-x" aria-label="Close">&times;</button></div><div id="appViewerContent" style="width:100%;box-sizing:border-box;"></div></div>';
+  ov.innerHTML = '<div class="modal-card"><div class="modal-header"><h3 id="appViewerTitle">Applicant</h3><button type="button" class="modal-close-x" aria-label="Close">&times;</button></div><div id="appViewerContent"></div></div>';
     document.body.appendChild(ov);
-    // enforce modal-card sizing inline to override external stylesheets
-    try {
-      const mc = ov.querySelector('.modal-card');
-      if (mc) {
-        mc.style.width = 'min(1500px, calc(100% - 40px))';
-        mc.style.maxWidth = '1500px';
-        mc.style.minWidth = '640px';
-        mc.style.maxHeight = 'calc(100vh - 80px)';
-        mc.style.overflowX = 'auto';
-        mc.style.overflowY = 'auto';
-        mc.style.padding = '22px';
-        mc.style.boxSizing = 'border-box';
-        mc.style.background = 'linear-gradient(180deg,#262626,#1f1f1f)';
-        mc.style.boxShadow = '0 8px 30px rgba(0,0,0,0.6)';
-        mc.style.borderRadius = '12px';
-        mc.style.fontFamily = 'Inter, "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif';
-      }
-    } catch (e) { console.warn('apply modal inline styles failed', e); }
+    // sizing and colors are handled by CSS in styles/applicants.css
     // log computed styles to help debug sizing issues
     try {
       const mc = ov.querySelector('.modal-card');
@@ -298,7 +294,7 @@ document.addEventListener('DOMContentLoaded', function () {
   async function openApplicant(id) {
     const ov = ensureViewer();
     const content = ov.querySelector('#appViewerContent');
-    content.innerHTML = '<div style="padding:12px;color:#aaa;">Loading...</div>';
+    content.innerHTML = '<div class="loading-placeholder">Loading...</div>';
     openViewer();
 
     try {
@@ -325,14 +321,14 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
-  // delegated click handler for applicant cards (inside DOMContentLoaded)
+  // delegated click handler for applicant cards or table rows (inside DOMContentLoaded)
   document.addEventListener('click', function (e) {
     try {
-      const card = e.target && e.target.closest && e.target.closest('.applicant-card');
+      const card = e.target && e.target.closest && (e.target.closest('.applicant-card') || e.target.closest('.app-row'));
       if (!card) return;
       const id = card.getAttribute('data-id');
       if (!id) return;
-      console.log('[applicants] card click detected, id=', id);
+      console.log('[applicants] click detected, id=', id);
       e.preventDefault();
       openApplicant(id);
     } catch (err) {
@@ -358,21 +354,21 @@ if ($conn) {
 }
 ?>
 
-<div class="widget tickets-widget" style="margin-top:12px;background:#0f0f0f;padding:12px;border-radius:8px;">
-  <h3 style="margin:0 0 8px 0;color:#fff;">Tickets (temporary widget)</h3>
+<div class="widget tickets-widget">
+  <h3>Tickets (temporary widget)</h3>
 
   <?php if (empty($tickets_widget)): ?>
-    <div style="color:#888;padding:8px;">No tickets found.</div>
+    <div class="no-tickets">No tickets found.</div>
   <?php else: ?>
-    <ul style="list-style:none;padding:0;margin:0;color:#ddd;">
+    <ul>
       <?php foreach ($tickets_widget as $t): ?>
-        <li style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.03);">
-          <div style="display:flex;justify-content:space-between;align-items:center;">
+        <li>
+          <div class="row">
             <div>
               <strong>#<?= htmlspecialchars($t['ticket_id']) ?></strong>
-              <span style="margin-left:8px;"><?= htmlspecialchars($t['subject'] ?: 'No subject') ?></span>
+              <span class="subject"><?= htmlspecialchars($t['subject'] ?: 'No subject') ?></span>
             </div>
-            <div style="color:#aaa;font-size:0.9rem;"><?= htmlspecialchars($t['status']) ?></div>
+            <div class="status"><?= htmlspecialchars($t['status']) ?></div>
           </div>
         </li>
       <?php endforeach; ?>

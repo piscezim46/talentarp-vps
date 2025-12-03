@@ -49,7 +49,7 @@
 }
 
 /* Apply to .content-area which is used in pages */
-.content-area { padding: 12px; background: var(--bg); color: var(--text-main); box-sizing: border-box; }
+.content-area { padding: 16px; background: var(--bg); color: var(--text-main); box-sizing: border-box; }
 .page-title {
      color: var(--accent);
     font-size: 1.5em;
@@ -80,11 +80,12 @@
 
 /* Layout and component styles for Applicants page (aligned with Users/Roles) */
 .filters-wrap {
-    background: var(--panel, #fafafa);
-    border: 1px solid rgba(15,23,42,0.04);
-    border-left: 6px solid var(--accent);
-    border-radius: 10px;
-    padding: 12px;
+    /* Transparent filters area to match positions page (no card look) */
+    background: transparent;
+    border: none;
+    border-left: none;
+    border-radius: 0;
+    padding: 0;
     margin-bottom: 12px;
     box-sizing: border-box;
 }
@@ -111,14 +112,14 @@
 .widget h3 { margin:0 0 12px 0; color:var(--accent); }
 
 /* Table styling within applicants page */
-.widget table { width:100%; border-collapse:collapse; background: transparent; table-layout: fixed; }
+.widget table { width:100%; border-collapse:collapse; background: transparent; table-layout: auto; }
 .widget thead th { background: #ffffff; color: var(--text-main); border-bottom: 2px solid rgba(15,23,42,0.06); font-weight:700; text-align:center; }
 .widget th, .widget td { padding:10px; vertical-align: middle; text-align:center; color:var(--text-main); border-bottom:1px solid rgba(15,23,42,0.04); }
 .widget tbody tr:hover { background: rgba(53,156,246,0.03); }
 
 /* compact columns (keep stable widths) */
-.col-select { width:48px; max-width:48px; padding:6px; text-align:center; }
-.col-id { width:64px; max-width:64px; padding:6px; text-align:center; font-variant-numeric: tabular-nums; }
+.col-select { min-width:48px; padding:6px; text-align:center; }
+.col-id { min-width:64px; padding:6px; text-align:center; font-variant-numeric: tabular-nums; }
 
 .pill { display:inline-block; padding:4px 10px; border-radius:999px; background:#f3f4f6; color:var(--text-main); font-size:12px; border:1px solid rgba(15,23,42,0.04); }
 
@@ -155,6 +156,183 @@
 .applicant-card .meta { color:#9aa4b2; font-size:13px; }
 .applicant-card .status-pill { background:#374151; color:#fff; padding:6px 10px; border-radius:999px; font-weight:700; display:inline-block; }
 
+/* Two-column layout: left = scrollable applicants list, right = detail card */
+/* Single-card layout: applicants table inside a card that doesn't touch bottom
+   - card uses viewport-relative height so it remains dynamic
+   - inner .table-wrap scrolls; table header stays sticky */
+/* Make the widget fill most of viewport height so the background card takes full height */
+.widget { height: 90vh; display: flex; flex-direction: column; }
+
+.app-layout { display:flex; gap:12px; align-items:stretch; flex:1 1 auto; }
+
+.app-list { margin-bottom: 0; border-radius: 10px; background: var(--panel, #fafafa); padding: 12px; box-sizing: border-box; border: 1px solid rgba(15,23,42,0.04); flex:1 1 50%; min-height:0; }
+
+/* Make the applicants list vertically scrollable with a styled scrollbar */
+.app-list {
+    /* Use up to 90% of available viewport height and allow vertical scroll inside the card */
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+/* WebKit scrollbar styling */
+.app-list::-webkit-scrollbar { width: 12px; }
+.app-list::-webkit-scrollbar-track { background: transparent; }
+.app-list::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #0b1220 40%));
+    border-radius: 8px;
+    border: 3px solid rgba(255,255,255,0.03);
+}
+.app-list::-webkit-scrollbar-thumb:hover { filter: brightness(0.92); }
+
+/* Firefox scrollbar styling */
+.app-list { scrollbar-width: thin; scrollbar-color: var(--accent) transparent; }
+
+/* Ensure table inside app-list can shrink and allow scrolling of its container (fixes flex/min-height issues) */
+.app-list table { min-width: 100%; }
+
+/* Limit visual height of long selects (roles/departments) and enable internal scrollbar for browsers that honor it */
+.filters-controls select, #ap_department, #f-role, #f-dept {
+    max-height: 40vh;
+    overflow-y: auto;
+}
+
+/* For custom dropdowns (multi-dd-menu) ensure vertical scrolling */
+.multi-dd-menu { max-height: 40vh; overflow-y: auto; }
+
+/* Scroll only the applicants list, not the outer widget/card */
+.app-list .table-scroll { max-height: 60vh; overflow-y: auto; border-radius: 6px; padding: 6px 0; }
+.app-list .table-scroll table, .app-list > table, .app-list .users-table { margin: 0; width: 100%; border-collapse: collapse; }
+.app-list .table-wrap table { margin: 0; width: 100%; border-collapse: collapse; }
+
+/* Make the table header sticky so it stays visible while the body scrolls */
+
+.app-list .table-scroll thead th, .app-list thead th { position: sticky; top: 0; background: var(--surface, #ffffff); z-index: 3; }
+
+/* Remove the left accent frame for applicants list to avoid duplicated card effect */
+.app-list.widget { border-left: none; }
+
+/* Align applicants table visuals with Users table for font, hover and spacing */
+/* Ensure Applicants table uses the same core table rules as the Users table
+   so font metrics, spacing, and wrapping behave identically. */
+.app-list .users-table, #applicantsTable, .app-list .users-table th, .app-list .users-table td {
+    font-family: "Segoe UI", Inter, system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    font-size: 14px;
+}
+
+/* Match Users table layout (fixed) to keep column widths and text rendering consistent */
+.app-list .users-table { table-layout: fixed; }
+
+.app-list .users-table thead th, #applicantsTable thead th { background: var(--surface,#ffffff); color: var(--text-main); border-bottom: 2px solid rgba(15,23,42,0.06); font-weight:700; }
+.app-list .users-table th, .app-list .users-table td, #applicantsTable th, #applicantsTable td {
+    padding: 10px; vertical-align: middle; text-align: center; color: var(--text-main); border-bottom: 1px solid rgba(15,23,42,0.04);
+}
+.app-list .users-table tbody tr, #applicantsTable tbody tr { background: transparent; }
+.app-list .users-table tbody tr:hover, #applicantsTable tbody tr:hover { background: rgba(53, 156, 246, 0.10); }
+
+/* Keep inline child elements centered inside cells like Users table does */
+.app-list .users-table td > *, #applicantsTable td > * { display: inline-block; margin: 0 auto; vertical-align: middle; text-align: center; }
+
+/* Prevent header wrapping and keep header line-height/padding matching Users table */
+.app-list .users-table thead th, #applicantsTable thead th {
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; line-height: 1.2; padding-top: 10px; padding-bottom: 10px;
+}
+
+/* Keep header sticky within the scrollable list */
+.app-list .table-scroll thead th { position: sticky; top: 0; z-index: 5; }
+
+/* Tickets widget styles (moved from inline in PHP) */
+.tickets-widget { margin-top:12px; background:#0f0f0f; padding:12px; border-radius:8px; }
+.tickets-widget h3 { margin:0 0 8px 0; color:#fff; }
+.tickets-widget .no-tickets { color:#888; padding:8px; }
+.tickets-widget ul { list-style:none; padding:0; margin:0; color:#ddd; }
+.tickets-widget li { padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.03); }
+.tickets-widget li .row { display:flex; justify-content:space-between; align-items:center; }
+.tickets-widget .subject { margin-left:8px; }
+.tickets-widget .status { color:#aaa; font-size:0.9rem; }
+
+/* Ensure modal viewer uses the theme colors and readable text */
+#applicantViewerModal .modal-card,
+#createApplicantModal .modal-card {
+    background: var(--surface, #ffffff);
+    color: var(--text-main, #111827);
+    width: min(1200px, calc(100% - 40px));
+    max-width: 1500px;
+    min-width: 320px;
+    max-height: calc(100vh - 80px);
+    overflow: auto;
+    padding: 22px;
+    box-sizing: border-box;
+    border-radius: 12px;
+    border: 1px solid rgba(15,23,42,0.04);
+    box-shadow: 0 8px 30px rgba(2,6,23,0.06);
+    font-family: Inter, "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Make sure text inside modal fragments is visible (override inline color if any) */
+/* Applicant viewer modal: force readable text and style fields for edit mode */
+#applicantViewerModal .modal-card, #createApplicantModal .modal-card {
+    color: var(--text-main, #111827) !important;
+    background: var(--surface, #ffffff) !important;
+}
+
+/* Ensure all descendants default to readable color (override fragments that set white) */
+#applicantViewerModal .modal-card *,
+#createApplicantModal .modal-card * {
+    color: var(--text-main, #111827) !important;
+}
+
+/* Form field styling inside modal viewer / edit mode */
+#applicantViewerModal .modal-card input,
+#applicantViewerModal .modal-card textarea,
+#applicantViewerModal .modal-card select,
+#createApplicantModal .modal-card input,
+#createApplicantModal .modal-card textarea,
+#createApplicantModal .modal-card select {
+    background: #ffffff !important;
+    color: var(--text-main, #111827) !important;
+    border: 1px solid rgba(15,23,42,0.08) !important;
+    border-radius: 6px !important;
+    padding: 8px !important;
+    box-sizing: border-box !important;
+}
+
+/* Make textarea and input placeholders slightly muted but readable */
+#applicantViewerModal .modal-card ::placeholder,
+#createApplicantModal .modal-card ::placeholder { color: rgba(17,24,39,0.45) !important; }
+
+/* Buttons inside modal viewer should use site accent and be readable */
+#applicantViewerModal .modal-card .btn, #applicantViewerModal .modal-card button,
+#createApplicantModal .modal-card .btn, #createApplicantModal .modal-card button {
+    background: var(--accent) !important;
+    color: #fff !important;
+    border: none !important;
+}
+
+/* Make labels and field helper text visible */
+#applicantViewerModal .modal-card label,
+#applicantViewerModal .modal-card .small-muted,
+#createApplicantModal .modal-card label,
+#createApplicantModal .modal-card .small-muted { color: var(--text-muted, #6b7280) !important; }
+
+/* Edit mode visual emphasis for fields (if fragment adds .editing on form) */
+#applicantViewerModal .modal-card .editing input,
+#applicantViewerModal .modal-card .editing textarea,
+#applicantViewerModal .modal-card .editing select {
+    box-shadow: 0 0 0 4px rgba(53,156,246,0.06) !important;
+    border-color: rgba(53,156,246,0.28) !important;
+}
+
+/* Field inline helpers moved from PHP inline styles */
+.field.inline { display:flex; gap:10px; }
+.field.inline > div { flex:1; }
+
+/* Modal actions default spacing used by create modal */
+.modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:12px; }
+
+@media (max-width: 980px) {
+    .app-list { height: 60vh; }
+}
+
 /* Modal helpers used by applicant viewer fragments */
 .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:12px; }
 
@@ -172,20 +350,19 @@
 /* Ensure the original hidden select remains accessible to forms but doesn't affect layout */
 .multi-dd-wrapper > select { display: none !important; }
 
-/* Applicant viewer modal specific styles moved from inline JS */
+/* Applicant viewer modal: use the same light modal style as Positions/Users pages */
 #applicantViewerModal .modal-card {
-    width: min(1500px, calc(100% - 40px));
+    width: 60vw;
     max-width: 1500px;
     min-width: 640px;
-    max-height: calc(100vh - 80px);
-    overflow-x: auto;
-    overflow-y: auto;
+    max-height: 90vh;
+    overflow: auto;
     padding: 22px;
     box-sizing: border-box;
-    background: linear-gradient(180deg,#262626,#1f1f1f);
-    box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+    background: var(--surface, #ffffff);
+    color: var(--text-main, #111827);
     border-radius: 12px;
-    font-family: Inter, "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    border: 1px solid rgba(15,23,42,0.04);
 }
 
 /* Align Applicants table font & sizing with Users table styles for visual parity */
@@ -196,6 +373,47 @@
 
 /* Header Create button in Applicants page */
 #openCreateApplicantBtn { display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:8px; border:1px solid rgba(15,23,42,0.06); background:var(--accent); color:#fff; cursor:pointer; }
+
+/* Bulk action button (matches positions page style) */
+.btn-bulk {
+    /* Match Clear Filters sizing/feel but with orange background */
+    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    padding: 10px 14px; border-radius: 10px; border: none; font-weight:700;
+    background: #f97316; color: #ffffff; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
+    margin-bottom: 5px; /* align with .btn-primary baseline */
+    font-size: 14px;
+}
+
+/* Visually disabled bulk button: muted appearance but still shows hover transform/jump
+   Do NOT use the global .btn[disabled] rules here (which set pointer-events:none)
+   — we want hover animation to remain while preventing actions via JS. */
+.btn-bulk.is-disabled {
+    background: #fbbf9a; /* lighter orange */
+    color: #ffffff;
+    opacity: 0.75;
+    cursor: default;
+    box-shadow: none;
+    transform: none;
+}
+.btn-bulk.is-disabled:hover {
+    /* allow the jump/hover transform to remain visible */
+    transform: translateY(-3px) scale(1.01);
+}
+
+/* Make table rows indicate clickability, but keep select column default cursor */
+.widget tbody tr, .app-row { cursor: pointer; }
+.col-select { cursor: default; min-width:48px; padding:6px; text-align:center; display:table-cell; vertical-align:middle; }
+.col-select input[type="checkbox"], .app-select {
+    /* Do not change column width or row height — scale the native control by 20% */
+    transform: scale(1.20);
+    transform-origin: center center;
+    display: inline-block;
+    margin: 0; cursor: pointer;
+    accent-color: #f97316; -webkit-appearance: auto; appearance: auto;
+}
+
+/* ensure checkbox doesn't trigger row click when clicking label/box */
+.col-select .app-select { pointer-events: auto; }
 
 /* Modal close button placed top-right inside modal-card */
 .modal-card .modal-close { position: absolute; right: 12px; top: 12px; background: transparent; border: 1px solid transparent; color: var(--text-muted); font-size: 18px; line-height: 1; padding:6px 8px; border-radius:6px; cursor:pointer; }
@@ -217,12 +435,9 @@
 /* Status pill that receives dynamic colors via data attributes and JS */
 .status-pill { padding: 6px 10px; border-radius: 999px; font-weight:700; display:inline-block; border:1px solid rgba(0,0,0,0.06); }
 
-/* Accent-colored scrollbar for widget (WebKit + Firefox) */
-.widget { overflow: auto; }
-.widget::-webkit-scrollbar { height: 10px; width: 10px; }
-.widget::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 8px; }
-.widget::-webkit-scrollbar-track { background: transparent; }
-.widget { scrollbar-width: thin; scrollbar-color: var(--accent) transparent; }
+/* The widget background card should not show its own scrollbar; the
+    `.app-list` container handles vertical scrolling for records. */
+.widget { overflow: visible; }
 
 /* Sortable header indicators */
 .widget thead th.sortable { cursor: pointer; position: relative; }
@@ -252,5 +467,71 @@
 
 /* ensure existing .btn.primary remains compatible */
 .btn.primary, .btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+
+/* Ticket topbar mini-card styles: equal widths, visible border and subtle background */
+.ticket-topbar .position-meta { display:flex; gap:10px; align-items:center; }
+.ticket-topbar .meta-item {
+    flex: 1 1 0%;
+    min-width: 0;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(59,130,246,0.14); /* soft blue accent border */
+    background: rgba(59,130,246,0.03); /* very subtle blue tint to stand out from white */
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 6px;
+    color: var(--text-main, #111827);
+}
+.ticket-topbar .meta-item .meta-label { color: var(--text-muted, #6b7280); font-size:12px; }
+.ticket-topbar .meta-item .meta-value { font-weight:700; color: var(--text-main, #111827); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* Smaller Open link inside the first meta card */
+.ticket-topbar .meta-item .open-position-link {
+    display: inline-block;
+    margin-top: 6px;
+    padding: 6px 8px;
+    font-size: 13px;
+    border-radius: 6px;
+    border: 1px solid rgba(15,23,42,0.06);
+    background: transparent;
+    color: var(--text-muted, #6b7280);
+    text-decoration: none;
+    font-weight:700;
+}
+.ticket-topbar .meta-item .open-position-link:hover { background: rgba(59,130,246,0.06); }
+
+/* Clickable applied-position card behaviour */
+.ticket-topbar .meta-item.meta-clickable { cursor: pointer; }
+.ticket-topbar .meta-item.meta-clickable:hover { transform: translateY(-3px); background: rgba(59,130,246,0.06); }
+
+/* Compact key/value rows for department/team/manager (no card look) */
+.ticket-topbar .meta-kv { display:flex; gap:12px; align-items:center; padding:6px 0; background: transparent; border: none; }
+.ticket-topbar .meta-kv .meta-label { color: var(--text-muted, #6b7280); font-size:13px; min-width:110px; }
+.ticket-topbar .meta-kv .meta-value { font-weight:700; color: var(--text-main, #111827); }
+
+
+
+/* Normalize small action/status buttons used in interview viewer and status actions
+   Ensure consistent height, padding, font and alignment while allowing color
+   to vary per-status. This fixes mismatched widths/heights across different
+   status/action button variants. */
+.status-action-btn, .status-action, .btn-ghost, .btn-orange {
+    min-width: 96px;
+    height: 40px;
+    padding: 8px 12px;
+    font-size: 14px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-sizing: border-box;
+}
+.status-action-btn { border: 1px solid rgba(0,0,0,0.12); }
+.btn-ghost { background: transparent; color: var(--text-main); border:1px solid rgba(15,23,42,0.06); }
+.btn-orange { background: #f97316; color: #fff; border: none; }
 
 

@@ -271,17 +271,19 @@ document.addEventListener('DOMContentLoaded', function(){
   if (editModal) obs.observe(editModal, { attributes: true, attributeFilter: ['style'] });
 
   // toggle active via existing endpoint
-  if (er_toggle_active) {
+    if (er_toggle_active) {
     er_toggle_active.addEventListener('click', function(e){
       var rid = er_role_id.value || '';
-      if (!rid) return alert('Missing role id');
+      if (!rid) {
+        try { if (window.Notify && typeof Notify.push === 'function') Notify.push({ from: 'Roles', message: 'Missing role id', color: '#dc2626' }); } catch(e){}
+        return;
+      }
       var fd = new FormData(); fd.append('role_id', rid);
       er_toggle_active.disabled = true; er_toggle_active.textContent = 'Working...';
       fetch('toggle_role.php', { method: 'POST', body: fd, credentials: 'same-origin' }).then(function(res){ return res.json(); }).then(function(json){
         if (!json || !json.ok) {
           var errMsg = 'Error: ' + (json && json.error ? json.error : 'Unknown');
-          alert(errMsg);
-          try { if (window.Notify && typeof Notify.push === 'function') Notify.push({from:'Roles', message: errMsg, color:'#dc2626'}); } catch(e){}
+          try { if (window.Notify && typeof Notify.push === 'function') Notify.push({ from: 'Roles', message: errMsg, color: '#dc2626' }); } catch(e){}
           er_toggle_active.disabled = false; er_toggle_active.textContent = (er_toggle_active.dataset.active=='1') ? 'Deactivate' : 'Activate';
           updateToggleButtonStyle();
           return;
@@ -293,7 +295,7 @@ document.addEventListener('DOMContentLoaded', function(){
         var row = document.querySelector('tr[data-role-id="' + rid + '"]'); if (row) { row.children[4].innerHTML = newActive==1 ? '<span style="color:green;font-weight:600;">Active</span>' : '<span style="color:#b33;font-weight:600;">Inactive</span>'; }
         er_toggle_active.disabled = false;
         try { if (window.Notify && typeof Notify.push === 'function') Notify.push({ from: 'Roles', message: (newActive ? 'Role activated' : 'Role deactivated'), color: newActive ? '#16a34a' : '#f59e0b' }); } catch(e){}
-      }).catch(function(){ alert('Network error'); er_toggle_active.disabled = false; er_toggle_active.textContent = (er_toggle_active.dataset.active=='1') ? 'Deactivate' : 'Activate'; });
+      }).catch(function(){ try { if (window.Notify && typeof Notify.push === 'function') Notify.push({ from: 'Roles', message: 'Network error', color: '#dc2626' }); } catch(e){} er_toggle_active.disabled = false; er_toggle_active.textContent = (er_toggle_active.dataset.active=='1') ? 'Deactivate' : 'Activate'; });
     });
   }
 

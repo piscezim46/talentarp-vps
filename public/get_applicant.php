@@ -122,8 +122,11 @@ ob_start();
     .app-ticket .status { font-weight:700; padding:6px 10px; border-radius:999px; background:#374151; color:#fff; }
     /* status badge style (match positions list look) */
     .status-badge { display:inline-block; padding:6px 10px; border-radius:999px; font-weight:700; font-size:13px; box-shadow: none; }
-    .modal-close-x { appearance:none; border:0; background:transparent; color:#e5e7eb; font-size:22px; line-height:1; cursor:pointer; padding:4px 8px; border-radius:8px; }
-    .modal-close-x:hover { background: rgba(255,255,255,0.08); }
+     /* Use the same close-button styling as the Positions modal to ensure
+       consistent appearance and accessible focus/hover states. Avoid using
+       the site accent as background so the X remains visible on dark modals. */
+     .modal-close-x { appearance:none; border:1px solid transparent; background:transparent; color: var(--text-muted, #9aa4b2); font-size:22px; line-height:1; cursor:pointer; padding:6px 8px; border-radius:6px; }
+     .modal-close-x:hover, .modal-close-x:focus { background: rgba(0,0,0,0.04); color: var(--text-main, #111827); outline: none; box-shadow: 0 0 0 3px rgba(53,156,246,0.06); }
 
     /* Keep profile/details and resume side-by-side on wide viewports */
     .app-lr { display:flex; gap:18px; margin-top:12px; align-items:flex-start; flex-wrap:nowrap; }
@@ -152,10 +155,14 @@ ob_start();
     .skill-chip .remove { background:transparent; border:0; color:#9aa4b2; cursor:pointer; font-weight:700; padding:0 4px; }
     #ap_skills_input { width:100%; padding:8px; border-radius:8px; background:#0f1720; color:#fff; border:1px solid rgba(255,255,255,0.04); box-sizing:border-box; }
 
-    .app-profile .actions, .app-details .actions { display:flex; gap:8px; justify-content:flex-end; margin-top:8px; }
-    .btn-edit { background:#0ea5e9; color:#032; }
-    .btn-save { background:#10b981; color:#032; }
-    .btn-cancel { background:#374151; color:#fff; }
+     .app-profile .actions, .app-details .actions { display:flex; gap:8px; justify-content:flex-end; margin-top:8px; }
+     /* Use site primary button styles for Edit / Save / Cancel so they match Create button
+       and any shared button CSS in the page. Specific classes are added to the markup
+       so these inherit the global `.btn.primary` / `.btn-primary` rules. */
+     .btn-edit, .btn-save, .btn-cancel { border-radius:8px; padding:8px 12px; border:1px solid rgba(15,23,42,0.06); cursor:pointer; }
+     .btn-edit { background: var(--accent, #359cf6); color: #fff; }
+     .btn-save { background: var(--accent, #359cf6); color: #fff; }
+     .btn-cancel { background: #374151; color: #fff; }
     .small-muted { color:#9aa4b2; font-size:13px; }
 
     .app-inline-notice { margin-top:8px; padding:8px; border-radius:8px; background:rgba(255,255,255,0.03); color:#ffd6d6; font-size:13px; }
@@ -204,25 +211,22 @@ ob_start();
     <?php if (!empty($position_title)): ?>
       <div class="ticket-topbar" style="margin-top:12px;margin-bottom:12px;">
         <div class="position-meta" style="display:flex;gap:10px;align-items:center;">
-          <div class="meta-item" style="flex:2;min-width:0;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:rgba(255,255,255,0.01);">
-            <div style="font-size:12px;color:#9aa4b2;margin-bottom:4px;">Applied Position</div>
-            <div style="font-weight:700;color:#fff;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;"><?php echo h($position_title); ?></div>
-          </div>
-          <div class="meta-item" style="flex:1;min-width:0;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:rgba(255,255,255,0.01);">
-            <div style="font-size:12px;color:#9aa4b2;margin-bottom:4px;">Department</div>
-            <div style="color:#fff;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;"><?php echo h($position_dept ?: 'Unassigned'); ?></div>
-          </div>
-          <div class="meta-item" style="flex:1;min-width:0;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:rgba(255,255,255,0.01);">
-            <div style="font-size:12px;color:#9aa4b2;margin-bottom:4px;">Team</div>
-            <div style="color:#fff;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;"><?php echo h($position_team ?: '—'); ?></div>
-          </div>
-          <div class="meta-item" style="flex:1;min-width:0;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:rgba(255,255,255,0.01);display:flex;align-items:center;justify-content:space-between;">
-            <div>
-              <div style="font-size:12px;color:#9aa4b2;margin-bottom:4px;">Manager</div>
-              <div style="color:#fff;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;"><?php echo h($position_manager ?: 'Unassigned'); ?></div>
+          <div class="meta-item meta-clickable" data-position-id="<?php echo (int)$position_id; ?>">
+            <div class="meta-field">
+              <div class="meta-label">Applied Position</div>
+              <div class="meta-value"><?php echo h($position_title); ?></div>
             </div>
-            <div style="margin-left:12px;">
-              <a href="#" class="open-position-link" data-position-id="<?php echo (int)$position_id; ?>" style="background:transparent;border:1px solid rgba(255,255,255,0.06);padding:8px 10px;border-radius:8px;color:#9aa4b2;text-decoration:none;font-weight:700;">Open</a>
+            <div class="meta-field">
+              <div class="meta-label">Department</div>
+              <div class="meta-value"><?php echo h($position_dept ?: 'Unassigned'); ?></div>
+            </div>
+            <div class="meta-field">
+              <div class="meta-label">Team</div>
+              <div class="meta-value"><?php echo h($position_team ?: '—'); ?></div>
+            </div>
+            <div class="meta-field">
+              <div class="meta-label">Manager</div>
+              <div class="meta-value"><?php echo h($position_manager ?: 'Unassigned'); ?></div>
             </div>
           </div>
         </div>
@@ -236,9 +240,9 @@ ob_start();
             <div style="display:flex;justify-content:space-between;align-items:center;">
               <strong style="color:#fff;font-size:15px;">Profile</strong>
               <div class="actions">
-                <button type="button" id="profileEditBtn" class="btn-edit">Edit</button>
-                <button type="button" id="profileSaveBtn" class="btn-save" style="display:none;">Save</button>
-                <button type="button" id="profileCancelBtn" class="btn-cancel" style="display:none;">Cancel</button>
+                <button type="button" id="profileEditBtn" class="btn primary btn-primary btn-edit">Edit</button>
+                <button type="button" id="profileSaveBtn" class="btn primary btn-primary btn-save" style="display:none;">Save</button>
+                <button type="button" id="profileCancelBtn" class="btn primary btn-primary btn-cancel" style="display:none;">Cancel</button>
               </div>
             </div>
 
@@ -464,9 +468,9 @@ ob_start();
             <div style="display:flex;justify-content:space-between;align-items:center;">
               <strong style="color:#fff;font-size:15px;">Key Details</strong>
               <div class="actions">
-                <button type="button" id="detailsEditBtn" class="btn-edit">Edit</button>
-                <button type="button" id="detailsSaveBtn" class="btn-save" style="display:none;">Save</button>
-                <button type="button" id="detailsCancelBtn" class="btn-cancel" style="display:none;">Cancel</button>
+                <button type="button" id="detailsEditBtn" class="btn primary btn-primary btn-edit">Edit</button>
+                <button type="button" id="detailsSaveBtn" class="btn primary btn-primary btn-save" style="display:none;">Save</button>
+                <button type="button" id="detailsCancelBtn" class="btn primary btn-primary btn-cancel" style="display:none;">Cancel</button>
               </div>
             </div>
 
@@ -621,29 +625,28 @@ ob_start();
           </div>
           <div id="ivScheduleContent" style="padding:14px;">
             <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
-              <div style="flex:1;min-width:200px;"><label style="color:#9aa4b2;font-size:13px;">Applicant</label><div id="iv_sched_applicant" style="color:#fff;font-weight:700;margin-top:6px;"><?php echo h($app['full_name']); ?></div></div>
-              <div style="flex:1;min-width:200px;"><label style="color:#9aa4b2;font-size:13px;">Position</label><div id="iv_sched_position" style="color:#fff;margin-top:6px;"><?php echo h($position_title ?: '—'); ?></div></div>
-            </div>
-
-            <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
-              <div style="flex:0 0 220px;"><label style="color:#9aa4b2;font-size:13px;">Date</label><input id="iv_sched_date" type="date" style="width:100%;padding:8px;border-radius:8px;background:#0f1720;color:#fff;border:1px solid rgba(255,255,255,0.04);" /></div>
-              <div style="flex:0 0 160px;"><label style="color:#9aa4b2;font-size:13px;">Time</label><input id="iv_sched_time" type="time" style="width:100%;padding:8px;border-radius:8px;background:#0f1720;color:#fff;border:1px solid rgba(255,255,255,0.04);" /></div>
-              <div style="flex:1;min-width:180px;"><label style="color:#9aa4b2;font-size:13px;">Location</label>
-                <select id="iv_sched_location" style="width:100%;padding:8px;border-radius:8px;background:#0f1720;color:#fff;border:1px solid rgba(255,255,255,0.04);">
-                  <option value="">-- Select Location --</option>
-                <option value="Abraj - HR">Abraj - HR</option>
-                  <option value="Abraj - CC">Abraj - CC</option>
-                  <option value="Promenad - HR">Promenad - HR</option>
-                  <option value="Online Interview">Online Interview</option>
-                  
-                </select>
+                <div style="flex:1;min-width:200px;"><label style="color:#9aa4b2;font-size:13px;">Applicant</label><div id="iv_sched_applicant" style="color:#fff;font-weight:700;margin-top:6px;"><?php echo h($app['full_name']); ?></div></div>
+                <div style="flex:1;min-width:200px;"><label style="color:#9aa4b2;font-size:13px;">Position</label><div id="iv_sched_position" style="color:#fff;margin-top:6px;"><?php echo h($position_title ?: '—'); ?></div></div>
               </div>
-            </div>
 
-            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
-              <button id="iv_sched_cancel" type="button" class="btn-ghost">Cancel</button>
-              <button id="iv_sched_save" type="button" class="btn-orange">Save</button>
-            </div>
+              <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+                <div style="flex:0 0 220px;"><label style="color:#9aa4b2;font-size:13px;">Date</label><input id="iv_sched_date" type="date" style="width:100%;padding:8px;border-radius:8px;background:#0f1720;color:#fff;border:1px solid rgba(255,255,255,0.04);" /></div>
+                <div style="flex:0 0 160px;"><label style="color:#9aa4b2;font-size:13px;">Time</label><input id="iv_sched_time" type="time" style="width:100%;padding:8px;border-radius:8px;background:#0f1720;color:#fff;border:1px solid rgba(255,255,255,0.04);" /></div>
+                <div style="flex:1;min-width:180px;"><label style="color:#9aa4b2;font-size:13px;">Location</label>
+                  <select id="iv_sched_location" style="width:100%;padding:8px;border-radius:8px;background:#0f1720;color:#fff;border:1px solid rgba(255,255,255,0.04);">
+                    <option value="">-- Select Location --</option>
+                  <option value="Abraj - HR">Abraj - HR</option>
+                    <option value="Abraj - CC">Abraj - CC</option>
+                    <option value="Promenad - HR">Promenad - HR</option>
+                    <option value="Online Interview">Online Interview</option>
+                  
+                  </select>
+                </div>
+              </div>
+
+              <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+                <button id="iv_sched_save" type="button" class="btn-orange">Save</button>
+              </div>
           </div>
         </div>
       </div>
@@ -997,8 +1000,8 @@ ob_start();
       const transitions = json.transitions || [];
       // If no transitions found, nothing to show
       if (!transitions.length) { holder.innerHTML = '<div style="color:#9aa4b2;font-size:13px">No status actions available.</div>'; return; }
-      // Render up to 2 buttons (per requirement) but render all if you prefer
-      const show = transitions.slice(0,2);
+      // Render all available transitions dynamically (no fixed limit)
+      const show = transitions;
       for (const t of show){
         const btn = document.createElement('button');
         btn.type = 'button';
@@ -1319,9 +1322,62 @@ ob_start();
       try { j = JSON.parse(txt); } catch(parseErr) { notify('Server error scheduling interview: ' + (txt || 'Invalid JSON'), '#dc2626'); return; }
       if (j.ok) {
         hideModal(schedModal);
-        notify('Interview scheduled', '#16a34a');
+        // Ensure notify system is ready, attempt retries, and fallback to an inline toast
+        async function ensureNotifyGlobal(){
+          try {
+            if (window.Notify && typeof window.Notify.push === 'function') return;
+            // inject CSS if missing
+            if (!document.querySelector('link[data-injected="notify-css"]')){
+              const l = document.createElement('link'); l.rel='stylesheet'; l.href='assets/css/notify.css'; l.setAttribute('data-injected','notify-css'); document.head.appendChild(l);
+            }
+            // inject script if missing
+            if (!document.querySelector('script[data-injected="notify-js"]')){
+              const s = document.createElement('script'); s.src='assets/js/notify.js'; s.async=true; s.setAttribute('data-injected','notify-js');
+              document.body.appendChild(s);
+              await new Promise((resolve)=>{ s.onload = () => resolve(); s.onerror = () => resolve(); });
+            }
+            // small wait / retries for Notify to become available
+            for (let i = 0; i < 6; i++){
+              if (window.Notify && typeof window.Notify.push === 'function') return;
+              // wait 80ms before next attempt
+              // eslint-disable-next-line no-await-in-loop
+              await new Promise(r=>setTimeout(r, 80));
+            }
+          } catch(e) { console.warn('ensureNotifyGlobal failed', e); }
+        }
+
+        function createInlineToast(msg, color){
+          try{
+            // ensure CSS present
+            if (!document.querySelector('link[data-injected="notify-css"]')){
+              const l = document.createElement('link'); l.rel='stylesheet'; l.href='assets/css/notify.css'; l.setAttribute('data-injected','notify-css'); document.head.appendChild(l);
+            }
+            const root = document.getElementById('toast-root') || (function(){ const r = document.createElement('div'); r.id = 'toast-root'; document.body.appendChild(r); return r; })();
+            const el = document.createElement('div'); el.className = 'toast'; el.classList.add('show');
+            el.style.setProperty('--accent', color || '#16a34a');
+            const safe = String(msg || '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+            el.innerHTML = '<div class="toast__body"><div><div class="toast__title">Applicants</div><div class="toast__msg">' + safe + '</div></div><button class="toast__close" aria-label="Close">&times;</button></div><div class="toast__progress"></div>';
+            root.appendChild(el);
+            const closer = el.querySelector('.toast__close'); if (closer) closer.addEventListener('click', function(){ try{ el.classList.add('hide'); setTimeout(()=>el.remove(),400); }catch(e){} });
+            const prog = el.querySelector('.toast__progress'); if (prog) prog.style.animationDuration = '3800ms';
+            // auto-remove after a short delay
+            setTimeout(function(){ try{ el.classList.add('hide'); setTimeout(()=>{ try{ el.remove(); }catch(e){} }, 650); }catch(e){} }, 4000);
+          }catch(e){ console.log('createInlineToast failed', e); }
+        }
+
+        try {
+          await ensureNotifyGlobal();
+          // try a short retry loop to call Notify.push when it becomes available
+          if (window.Notify && typeof window.Notify.push === 'function'){
+            try { window.Notify.push({ from: 'Applicants', message: 'Interview scheduled', color: '#16a34a' }); } catch(e){ console.warn('Notify.push failed', e); createInlineToast('Interview scheduled', '#16a34a'); }
+          } else {
+            // fallback to inline toast that does not depend on the library
+            createInlineToast('Interview scheduled', '#16a34a');
+          }
+        } catch(e){ console.warn('notify dispatch failed', e); try{ createInlineToast('Interview scheduled', '#16a34a'); }catch(_){} }
+
         // refresh the applicant fragment so the ticket shows the new record
-        try { await refreshApplicantFragment(); } catch(e){ notify('Refresh failed after scheduling', '#f59e0b'); }
+        try { await refreshApplicantFragment(); } catch(e){ try { await ensureNotifyGlobal(); if (window.Notify && typeof window.Notify.push === 'function') { window.Notify.push({ from: 'Applicants', message: 'Refresh failed after scheduling', color: '#F59E0B' }); } else { if (typeof notify === 'function') notify('Refresh failed after scheduling', '#f59e0b'); } } catch(_){} }
       } else {
         notify(j.message || 'Failed to schedule interview', '#dc2626');
       }
@@ -1535,10 +1591,10 @@ ob_start();
   }
 
   document.addEventListener('click', function(e){
-    const el = e.target && e.target.closest && e.target.closest('.open-position-link');
+    const el = e.target && e.target.closest && (e.target.closest('.open-position-link') || e.target.closest('.meta-clickable'));
     if (!el) return;
-    e.preventDefault();
-    const pid = el.getAttribute('data-position-id');
+    try{ e.preventDefault(); }catch(e){}
+    const pid = el.getAttribute && el.getAttribute('data-position-id');
     if (pid) openPositionFromApplicant(pid);
   });
 })();

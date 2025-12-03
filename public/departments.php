@@ -440,7 +440,7 @@ if (file_exists(__DIR__ . '/../includes/navbar.php')) include __DIR__ . '/../inc
     if (deptToggleBtn) {
         deptToggleBtn.addEventListener('click', function(){
             const depId = document.getElementById('edit_department_id') ? document.getElementById('edit_department_id').value : '';
-            if (!depId) return alert('Missing department id');
+            if (!depId) { try { if (window.Notify && typeof Notify.push === 'function') Notify.push({ from: 'Departments', message: 'Missing department id', color: '#dc2626' }); } catch(e){} return; }
             deptToggleBtn.disabled = true; deptToggleBtn.textContent = 'Working...';
             var fd = new FormData(); fd.append('department_id', depId);
             fetch('toggle_department.php', { method: 'POST', body: fd, credentials: 'same-origin' }).then(function(res){ return res.json(); }).then(function(json){
@@ -468,7 +468,7 @@ if (file_exists(__DIR__ . '/../includes/navbar.php')) include __DIR__ . '/../inc
                 } catch(e){}
                 try { if (window.Notify && typeof Notify.push === 'function') Notify.push({ from: 'Departments', message: newActive ? 'Department activated' : 'Department deactivated', color: newActive ? '#16a34a' : '#f59e0b' }); } catch(e){}
                 deptToggleBtn.disabled = false;
-            }).catch(function(){ alert('Network error'); deptToggleBtn.disabled = false; deptToggleBtn.textContent = (deptToggleBtn.dataset.active === '1') ? 'Deactivate' : 'Activate'; updateDeptToggleStyle(); });
+            }).catch(function(){ try { if (window.Notify && typeof Notify.push === 'function') Notify.push({ from: 'Departments', message: 'Network error', color: '#dc2626' }); } catch(e){} deptToggleBtn.disabled = false; deptToggleBtn.textContent = (deptToggleBtn.dataset.active === '1') ? 'Deactivate' : 'Activate'; updateDeptToggleStyle(); });
         });
     }
 

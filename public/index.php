@@ -152,7 +152,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     <div class="login-left">
         <div class="login-logo-wrap">
-          <img src="assets/White-Bugatti-Logo.webp" alt="Company logo" class="login-logo" style="width:240px;height:auto;" onerror="this.style.display='none'" />
+          <div class="login-logo" role="img" aria-label="Company logo"></div>
         </div>
         <div class="login-title">Talent Acquisition</div>
         <div class="login-subtitle">Recruitment Platform</div>

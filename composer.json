@@ -1,0 +1,7 @@
+{
+  "name": "talentarp/ticketing-system",
+  "description": "Ticketing system",
+  "require": {
+    "phpmailer/phpmailer": "^6.8"
+  }
+}

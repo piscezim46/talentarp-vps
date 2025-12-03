@@ -86,6 +86,11 @@ if (file_exists(__DIR__ . '/../includes/navbar.php')) include __DIR__ . '/../inc
 <link rel="stylesheet" href="styles/roles.css">
 <link rel="stylesheet" href="assets/css/notify.css">
 <script src="assets/js/notify.js"></script>
+<style>
+    /* Invite toggle visual: green when checked (send), red when unchecked (don't send) */
+    #u_send_invite { width:18px; height:18px; accent-color:#10b981; }
+    #u_send_invite.invite-off { accent-color:#ef4444; }
+</style>
 <title>Users</title>
 <script>
 // Capture and surface JS errors on this page to help debugging (shows toast and logs to console)
@@ -330,6 +335,11 @@ window.addEventListener('unhandledrejection', function(e){
                 <label for="u_password">Password</label>
                 <input id="u_password" name="password" type="password" required>
 
+                <label for="u_send_invite" style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+                    <span>Send invitation email</span>
+                    <input id="u_send_invite" name="send_invite" type="checkbox" checked aria-checked="true" />
+                </label>
+
                 <div class="modal-actions">
                     <button type="button" id="cancelCreate" class="btn">Cancel</button>
                     <button type="submit" class="btn btn-orange">Create</button>
@@ -376,6 +386,7 @@ document.addEventListener('DOMContentLoaded', function(){
     const createModal = document.getElementById('createModal');
     const cancelCreate = document.getElementById('cancelCreate');
     const createForm = document.getElementById('createForm');
+    const u_send_invite = document.getElementById('u_send_invite');
     // close button inside Create modal
     const createCloseBtn = createModal && createModal.querySelector('.modal-close');
     if (createCloseBtn) createCloseBtn.addEventListener('click', closeCreate);
@@ -410,6 +421,17 @@ document.addEventListener('DOMContentLoaded', function(){
         // reset and disable role select so it requires department selection next time
         try { const urole = document.getElementById('u_role'); if (urole) { urole.value = ''; urole.disabled = true; } } catch(e) {}
     }
+
+    // invite toggle visual behavior: checked = send (green), unchecked = don't send (red)
+    try {
+        if (u_send_invite) {
+            function updateInviteVisual() {
+                if (u_send_invite.checked) u_send_invite.classList.remove('invite-off'); else u_send_invite.classList.add('invite-off');
+            }
+            u_send_invite.addEventListener('change', updateInviteVisual);
+            updateInviteVisual();
+        }
+    } catch(e) { console.warn('invite toggle init failed', e); }
 
     openBtn && openBtn.addEventListener('click', openCreate);
     cancelCreate && cancelCreate.addEventListener('click', closeCreate);
@@ -566,6 +588,24 @@ document.addEventListener('DOMContentLoaded', function(){
     const bulkModalClose = bulkForceModal ? bulkForceModal.querySelector('.modal-close') : null;
     let bulkPendingIds = [];
     let bulkProcessing = false;
+
+    // open modal when admin clicks the bulk action button: gather visible rows' ids
+    if (bulkForceResetBtn) {
+        bulkForceResetBtn.addEventListener('click', function(){
+            if (bulkProcessing) return;
+            if (!usersTable) return;
+            const rows = Array.from(usersTable.querySelectorAll('tbody tr'));
+            const visibleRows = rows.filter(r => r.style.display !== 'none');
+            const ids = visibleRows.map(r => parseInt(r.dataset.id, 10)).filter(Boolean);
+            if (!ids.length) {
+                try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: 'No users visible to apply bulk reset', color: '#f59e0b' }); } catch(e){}
+                return;
+            }
+            openBulkModal(ids.length, ids);
+        });
+    }
+
+    if (bulkCancelBtn) bulkCancelBtn.addEventListener('click', function(){ if (!bulkProcessing) closeBulkModal(); });
 
     function openBulkModal(count, ids) {
         if (!bulkForceModal) return;
@@ -800,6 +840,8 @@ function parseDateFromCell(text){ // try to parse YYYY-MM-DD or fallback
                         </div>
                         <div style="display:flex;gap:8px;">
                             ${IS_ADMIN ? '<button type="button" id="e_reset_pwd" class="btn">Reset Password</button>' : ''}
+                            ${IS_ADMIN ? '<button type="button" id="e_resend_invite" class="btn">Resend Invitation</button>' : ''}
+                            ${IS_ADMIN ? '<button type="button" id="e_copy_invite" class="btn">Copy Invitation</button>' : ''}
                             ${IS_ADMIN ? '<button type="button" id="e_toggle_active" class="btn">Toggle Active</button>' : ''}
                             <button type="submit" id="e_save" class="btn">Save</button>
                         </div>
@@ -826,6 +868,7 @@ function parseDateFromCell(text){ // try to parse YYYY-MM-DD or fallback
         const e_cancel = document.getElementById('e_cancel');
         const e_toggle_active = document.getElementById('e_toggle_active');
         const e_reset_pwd = document.getElementById('e_reset_pwd');
+        const e_resend_invite = document.getElementById('e_resend_invite');
 
         // populate department select for edit modal
         (function populateEditDepartments(){
@@ -1064,6 +1107,107 @@ function parseDateFromCell(text){ // try to parse YYYY-MM-DD or fallback
             });
         }
 
+        // resend invitation inside modal (admin only)
+        if (e_resend_invite) {
+            e_resend_invite.addEventListener('click', async function(){
+                if (!selectedRow) return;
+                const id = parseInt(selectedRow.dataset.id,10);
+                try {
+                    const res = await fetch('resend_invitation.php', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: id }) });
+                    const clone = res.clone();
+                    let json = null;
+                    if (res.ok) {
+                        try { json = await res.json(); } catch(parseErr) { const txt = await clone.text(); document.getElementById('editMsg').textContent = txt.replace(/<[^>]+>/g,' '); try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: 'Server error: see message', color: '#dc2626' }); } catch(e){} return; }
+                    } else { const txt = await clone.text(); document.getElementById('editMsg').textContent = txt.replace(/<[^>]+>/g,' '); try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: 'Request failed', color: '#dc2626' }); } catch(e){} return; }
+
+                    if (json && json.success) {
+                        // show inline message
+                        try { var em = document.getElementById('editMsg'); if (em) { em.textContent = 'Invitation resent.'; em.classList.add('edit-reset-success'); } } catch(e){}
+                        try {
+                            if (window.Notify && typeof window.Notify.push === 'function') {
+                                var msg = 'Invitation resent for user #' + json.id;
+                                if (!json.email_sent) msg += ' (email failed' + (json.email_error ? ': ' + json.email_error : '') + ')';
+                                var toastEl = Notify.push({ from: 'Users', message: msg, color: json.email_sent ? '#10b981' : '#f59e0b', duration: 20000 });
+                                // if server returned a password, make the toast copyable like reset
+                                try {
+                                    if (toastEl && toastEl.addEventListener && navigator.clipboard && json.password) {
+                                        toastEl.style.cursor = 'pointer';
+                                        toastEl.title = 'Click to copy password to clipboard';
+                                        toastEl.addEventListener('click', function(){
+                                            var pw = String(json.password || '');
+                                            if (!pw) return;
+                                            navigator.clipboard.writeText(pw).then(function(){
+                                                Notify.push({ from: 'Users', message: 'Password copied to clipboard', color: '#10b981', duration: 4000 });
+                                                try { if (editModal) editModal.style.display = 'none'; } catch(e){}
+                                            }).catch(function(){ Notify.push({ from: 'Users', message: 'Copy failed', color: '#dc2626', duration: 4000 }); });
+                                        });
+                                    }
+                                } catch(innerErr) { console.warn(innerErr); }
+                            }
+                        } catch(e){}
+                    } else {
+                        const err = json && json.error ? json.error : 'Resend failed';
+                        try { var em2 = document.getElementById('editMsg'); if (em2) { em2.textContent = err; em2.classList.remove('edit-reset-success'); } } catch(e){}
+                        try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: err, color: '#dc2626' }); } catch(e){}
+                    }
+                } catch (err) { console.error(err); try { document.getElementById('editMsg').textContent = 'Request failed'; } catch(e){} try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: 'Request failed', color: '#dc2626' }); } catch(e){} }
+            });
+        }
+
+        // copy invitation message (admin only) - builds a plain-text message without signature
+        const e_copy_invite = document.getElementById('e_copy_invite');
+        if (e_copy_invite) {
+            e_copy_invite.addEventListener('click', async function(){
+                if (!selectedRow) return;
+                try {
+                    const name = (selectedRow.dataset.name || '').trim();
+                    const username = (selectedRow.dataset.username || '').trim();
+                    const email = (selectedRow.dataset.email || '').trim();
+                    const siteOrigin = (window.location && window.location.origin) ? window.location.origin : (window.location.protocol + '//' + window.location.host);
+                    const loginUrl = siteOrigin + '/index.php';
+                    // If the admin already used Resend Invitation, the server returns a password in JSON and the toast copy handler covers copying it.
+                    // Here we build a clean, signature-free message suitable for manual sending via external mailbox.
+                    let msg = '';
+                    msg += 'Hello ' + (name || '');
+                    msg += "\n\n";
+                    msg += 'An account has been created for you on ' + (window.location.hostname || 'our site') + '.';
+                    msg += "\n\n";
+                    if (username) msg += 'Username: ' + username + "\n";
+                    // include the temporary password line as requested
+                    msg += 'Password: temp' + "\n\n";
+                    msg += 'Please sign in and set your password here: ' + loginUrl + "\n\n";
+                    msg += 'If you would like a different temporary password, please reply to this message or contact the administrator.';
+                    msg += "\n\n";
+                    msg += 'Thank you.';
+
+                    // attempt navigator.clipboard first
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        await navigator.clipboard.writeText(msg);
+                        try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: 'Invitation message copied to clipboard', color: '#10b981' }); } catch(e){}
+                        return;
+                    }
+
+                    // fallback: create a temporary textarea, select and copy
+                    const ta = document.createElement('textarea');
+                    ta.value = msg;
+                    ta.style.position = 'fixed'; ta.style.left = '-9999px'; ta.style.top = '0';
+                    document.body.appendChild(ta);
+                    ta.focus(); ta.select();
+                    let ok = false;
+                    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+                    document.body.removeChild(ta);
+                    if (ok) {
+                        try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: 'Invitation message copied to clipboard', color: '#10b981' }); } catch(e){}
+                    } else {
+                        try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: 'Copy failed - please select and copy manually', color: '#f59e0b' }); } catch(e){}
+                    }
+                } catch (err) {
+                    console.error('Copy invite failed', err);
+                    try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: 'Copy failed', color: '#dc2626' }); } catch(e){}
+                }
+            });
+        }
+
         // save edits
         if (e_form) {
             e_form.addEventListener('submit', async function(ev){
@@ -1140,11 +1284,12 @@ function parseDateFromCell(text){ // try to parse YYYY-MM-DD or fallback
     if (createForm) {
         createForm.addEventListener('submit', async function(e){
             e.preventDefault();
-            const data = {
+                const data = {
                     name: (document.getElementById('u_name') || {}).value || '',
                     user_name: (document.getElementById('u_username') || {}).value || '',
                     email: (document.getElementById('u_email') || {}).value || '',
                     password: (document.getElementById('u_password') || {}).value || '',
+                    send_invite: (document.getElementById('u_send_invite') || {}).checked ? 1 : 0,
                     role_id: parseInt((document.getElementById('u_role') || {}).value || '', 10) || 0,
                     manager_name: (document.getElementById('u_manager_name') || {}).value || '',
                     department_id: parseInt((document.getElementById('u_department') || {}).value) || 0,
@@ -1158,7 +1303,11 @@ function parseDateFromCell(text){ // try to parse YYYY-MM-DD or fallback
                     try { json = await res.json(); } catch(parseErr) { const txt = await clone.text(); document.getElementById('createMsg').textContent = txt.replace(/<[^>]+>/g,' '); try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: 'Server error', color: '#dc2626' }); } catch(e){} return; }
                 } else { const txt = await clone.text(); document.getElementById('createMsg').textContent = txt.replace(/<[^>]+>/g,' '); try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: 'Request failed', color: '#dc2626' }); } catch(e){} return; }
                 if (json && json.success) {
-                    try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: 'User created', color: '#10b981' }); } catch(e){}
+                    try {
+                        var createdMsg = 'User created';
+                        if (json.invite_sent === false) createdMsg += ' (invitation send failed' + (json.invite_error ? ': ' + json.invite_error : '') + ')';
+                        if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: createdMsg, color: json.invite_sent === false ? '#f59e0b' : '#10b981' });
+                    } catch(e){}
                     setTimeout(()=> window.location.reload(), 700);
                 } else {
                     const err = json && json.error ? json.error : 'Failed to create user';

@@ -191,17 +191,17 @@ document.addEventListener('DOMContentLoaded', function(){
         var tr = document.getElementById('ns_transitions');
         if (tr) { for (var i=0;i<tr.options.length;i++){ var o=tr.options[i]; if (o && o.selected) transitions.push(parseInt(o.value,10)); } }
 
-        if (!name) { alert('Name required'); return; }
-        if (!pool) { alert('Pool required'); return; }
-        if (!transitions.length) { alert('Select at least one transition'); return; }
-        if (!validateSort()) { alert('Please choose a different Sort Order'); return; }
+        if (!name) { try { if (window.Notify && typeof Notify.push === 'function') Notify.push({ from: 'Flows', message: 'Name required', color: '#dc2626' }); } catch(e){} return; }
+        if (!pool) { try { if (window.Notify && typeof Notify.push === 'function') Notify.push({ from: 'Flows', message: 'Pool required', color: '#dc2626' }); } catch(e){} return; }
+        if (!transitions.length) { try { if (window.Notify && typeof Notify.push === 'function') Notify.push({ from: 'Flows', message: 'Select at least one transition', color: '#dc2626' }); } catch(e){} return; }
+        if (!validateSort()) { try { if (window.Notify && typeof Notify.push === 'function') Notify.push({ from: 'Flows', message: 'Please choose a different Sort Order', color: '#dc2626' }); } catch(e){} return; }
 
         var payload = { status_id: id, status_name: name, status_color: color, pool_id: pool, active: active, sort_order: sort_order, transitions: transitions };
         try {
             var res = await fetch('flows_update_applicants.php', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
             var json = await res.json();
-            if (json && json.success) { alert('Updated'); window.location.href = 'flows.php'; }
-            else { alert('Update failed: ' + (json && json.error ? json.error : 'unknown')); }
+            if (json && json.success) { try { if (window.Notify && typeof Notify.push === 'function') Notify.push({ from: 'Flows', message: 'Updated', color: '#16a34a' }); } catch(e){} window.location.href = 'flows.php'; }
+            else { try { if (window.Notify && typeof Notify.push === 'function') Notify.push({ from: 'Flows', message: 'Update failed: ' + (json && json.error ? json.error : 'unknown'), color: '#dc2626' }); } catch(e){} }
         } catch(e){ console.error(e); alert('Request failed'); }
     });
     <?php endif; ?>

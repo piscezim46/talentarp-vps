@@ -240,7 +240,7 @@ body{
 /* Subtle variant for when active but placed on dark backgrounds (defensive) */
 .table-card .hdr .timeframe-btn.active { background: var(--accent, #2563eb); color: var(--accent-foreground, #fff); }
 .summary-row { display:flex; justify-content:space-between; align-items:center; }
-.summary-row .value { font-weight:800; color:#fff; }
+.summary-row .value { font-weight:800; color:rgb(255, 0, 0); }
 .small-muted { color:#9aa4b2; font-size: inherit; }
 
 /* Ensure scrolling inside specific card areas only */

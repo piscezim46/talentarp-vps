@@ -15,13 +15,16 @@ if (!empty($_SESSION['user']['force_password_reset']) && !in_array($currentScrip
 <head>
     <meta charset="utf-8">
     <title><?= htmlspecialchars($pageTitle ?? 'App') ?></title>
-    <!-- Site favicon (white logo) - provide multiple sizes so browsers can choose larger icons -->
-    <link rel="icon" type="image/webp" href="assets/White-Bugatti-Logo.webp" sizes="32x32">
-    <link rel="icon" type="image/webp" href="assets/White-Bugatti-Logo.webp" sizes="64x64">
+    <!-- Site favicon (white logo) - prefer higher-resolution icons so chrome uses a crisp image -->
+    <!-- Provide larger sizes (64->128, and 256) so browsers use a 2x quality icon when available -->
+    <link rel="icon" type="image/webp" href="assets/White-Bugatti-Logo.webp" sizes="128x128">
+    <link rel="icon" type="image/webp" href="assets/White-Bugatti-Logo.webp" sizes="256x256">
+    <link rel="apple-touch-icon" href="assets/White-Bugatti-Logo.png" sizes="180x180">
     <link rel="shortcut icon" href="assets/White-Bugatti-Logo.webp">
-    <!-- PNG fallback (if you prefer a PNG at various sizes, place files in public/assets and update the paths) -->
-    <link rel="icon" type="image/png" href="assets/White-Bugatti-Logo.png" sizes="32x32">
+    <!-- PNG fallbacks (same assets expected in public/assets) -->
     <link rel="icon" type="image/png" href="assets/White-Bugatti-Logo.png" sizes="64x64">
+    <link rel="icon" type="image/png" href="assets/White-Bugatti-Logo.png" sizes="128x128">
+    <link rel="icon" type="image/png" href="assets/White-Bugatti-Logo.png" sizes="256x256">
     <!-- existing meta / css links -->
     <!-- Font Awesome (fallback) -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" integrity="sha512-..." crossorigin="anonymous" referrerpolicy="no-referrer" />
@@ -55,12 +58,16 @@ if (!empty($_SESSION['user']['force_password_reset']) && !in_array($currentScrip
     <style>
     /* Header logo sizing and hover effect */
     .logo-section .site-logo { 
-        height: 108px; /* doubled base size */
-        width: auto; 
+        height: 60px;
+        width: 55px;
         display: inline-block; 
         vertical-align: middle; 
         transition: transform .12s ease, box-shadow .12s ease; 
         cursor: pointer;
+        background-image: url('assets/bugatti-logo.png');
+        background-repeat: no-repeat;
+        background-position: center left;
+        background-size: contain;
     }
     .logo-section .site-logo:hover {
         transform: translateY(-2px) scale(1.10); /* 10% scale on hover */
@@ -79,7 +86,7 @@ if (!empty($_SESSION['user']['force_password_reset']) && !in_array($currentScrip
 
 <div class="topbar">
     <div class="logo-section">
-        <img src="assets/bugatti-logo.png" alt="Bugatti logo" class="site-logo" onerror="this.onerror=null;this.src='assets/bugatti-logo.png'" />
+        <div class="site-logo site-logo--black" role="img" aria-label="Bugatti logo"></div>
         <span class="tagline">HELPING YOU HIRE WONDERFUL PEOPLE</span>
     </div>
     <?php
@@ -88,11 +95,15 @@ if (!empty($_SESSION['user']['force_password_reset']) && !in_array($currentScrip
     $userId = $_SESSION['user']['id'] ?? null;
     $userNameShort = htmlspecialchars(substr($userName,0,1) ?: 'U');
     $userNameEsc = htmlspecialchars($userName);
+    $userRoleEsc = htmlspecialchars($_SESSION['user']['role'] ?? '');
     ?>
     <div class="topbar-user" style="margin-left:auto;display:flex;align-items:center;gap:12px;padding-right:16px;position:relative;">
-        <div style="display:flex;flex-direction:column;align-items:flex-end;min-width:0;">
-            <div class="topbar-user-name" style="font-weight:700;color:#000000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;"><?= $userNameEsc ?></div>
-        </div>
+                <div style="display:flex;flex-direction:column;align-items:flex-end;min-width:0;">
+                        <div class="topbar-user-name" style="font-weight:700;color:#000000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;"><?= $userNameEsc ?></div>
+                        <?php if (!empty($userRoleEsc)): ?>
+                            <div class="topbar-user-role" style="color:#6b7280;font-size:13px;line-height:1;margin-top:2px;"><?= $userRoleEsc ?></div>
+                        <?php endif; ?>
+                </div>
         <div class="topbar-avatar" data-user-id="<?= htmlspecialchars($userId) ?>" aria-haspopup="true" aria-expanded="false" style="width:40px;height:40px;border-radius:999px;background:#f3f3f3;display:flex;align-items:center;justify-content:center;font-weight:700;color:#333;user-select:none;">
             <?= $userNameShort ?>
         </div>

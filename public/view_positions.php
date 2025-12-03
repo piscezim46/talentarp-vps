@@ -866,6 +866,34 @@ if (isset($_GET['created'])) {
   });
   window.applyPositionsFilters = applyFilters;
 })();
+
+// Prefill filters from query params (so dashboard links can open view_positions with filters)
+(function(){
+  try{
+    const params = new URL(window.location.href).searchParams;
+    const mappings = {
+      'fStatus': 'fStatus',
+      'fDept': 'fDept',
+      'fTeam': 'fTeam',
+      'fCreatedFrom': 'fCreatedFrom',
+      'fCreatedTo': 'fCreatedTo',
+      'fTitle': 'fTitle'
+    };
+    let changed = false;
+    Object.keys(mappings).forEach(k=>{
+      if (!params.has(k)) return;
+      const el = document.getElementById(mappings[k]);
+      if (!el) return;
+      const v = params.get(k) || '';
+      // For department/team selects values in view_positions are lowercase; preserve as provided
+      try { el.value = v; changed = true; } catch(e){}
+    });
+    if (changed && typeof window.applyPositionsFilters === 'function') {
+      // small timeout to allow other scripts to initialize
+      setTimeout(()=>{ try { window.applyPositionsFilters(); } catch(e){} }, 60);
+    }
+  }catch(e){}
+})();
 </script>
 
 <script>

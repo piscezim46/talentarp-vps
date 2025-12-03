@@ -22,6 +22,7 @@ $name = trim($input['name'] ?? '');
 $user_name = trim($input['user_name'] ?? '');
 $email = trim($input['email'] ?? '');
 $password = $input['password'] ?? '';
+$send_invite = isset($input['send_invite']) ? intval($input['send_invite']) : 1; // default: send invitation
 $role = trim($input['role'] ?? '');
 $role_id = isset($input['role_id']) && $input['role_id'] !== '' ? intval($input['role_id']) : null;
 $manager_name = trim($input['manager_name'] ?? '');
@@ -115,6 +116,42 @@ if (!$stmt->execute()) {
     $newId = $stmt->insert_id;
     $stmt->close();
 
+    $invite_sent_ok = false;
+    // If client asked to send invitation, attempt to send email now (use raw password or a temporary link)
+    if ($send_invite) {
+        try {
+            if (file_exists(__DIR__ . '/../includes/email_utils.php')) {
+                require_once __DIR__ . '/../includes/email_utils.php';
+                // prefer username if provided, otherwise email as identifier
+                $loginIdent = $user_name !== '' ? $user_name : $email;
+                // call helper to send email (uses PHPMailer SMTP). Ensure composer/install and config.php SMTP are set.
+                $opts = [
+                    'from_email' => 'Master@talentarp.com',
+                    'from_name' => 'Master',
+                    'subject' => 'Your Talent ARP account',
+                    // 'use_temporary_link' => true, 'temp_link' => $tempLink
+                ];
+                $sendRes = send_invitation_email($email, $loginIdent, $password, $opts);
+                if (is_array($sendRes)) {
+                    $invite_sent_ok = !empty($sendRes['success']);
+                    $invite_error = $sendRes['error'] ?? null;
+                } else {
+                    // backward compatibility: boolean
+                    $invite_sent_ok = (bool)$sendRes;
+                    $invite_error = null;
+                }
+                if ($invite_sent_ok) {
+                    // mark invitation_sent = 1
+                    $u = $conn->prepare('UPDATE users SET invitation_sent = 1 WHERE id = ?');
+                    if ($u) { $u->bind_param('i', $newId); $u->execute(); $u->close(); }
+                }
+            }
+        } catch (Throwable $e) {
+            // non-fatal, send failure logged by helper
+            $invite_sent_ok = false;
+        }
+    }
+
     // set password_changed_at to now for newly created account (use helper)
     try {
         if (file_exists(__DIR__ . '/../includes/user_utils.php')) require_once __DIR__ . '/../includes/user_utils.php';
@@ -142,7 +179,7 @@ if (!$stmt->execute()) {
         }
     }
 
-    echo json_encode([
+    $out = [
         'success' => true,
         'user' => [
             'id' => (int)$newId,
@@ -155,6 +192,12 @@ if (!$stmt->execute()) {
             'department_id' => $department_id,
             'team_id' => $team_id
         ]
-    ]);
+    ];
+
+    // include invite send details for client visibility
+    $out['invite_sent'] = !empty($invite_sent_ok);
+    if (!empty($invite_error)) $out['invite_error'] = $invite_error;
+
+    echo json_encode($out);
 exit;
 ?>

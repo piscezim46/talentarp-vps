@@ -67,17 +67,39 @@ html, body { height: 100%; margin: 0; background: var(--bg-color, transparent); 
 .positions-table tbody tr { background: linear-gradient(180deg, rgba(0,0,0,0.02), transparent); transition: background 0.12s, transform 0.08s; }
 .positions-table tbody tr:hover { background: rgba(255,102,0,0.03); transform: translateY(-1px); }
 
-/* Grid */
-.positions-grid { display: grid; grid-template-columns: repeat(4, minmax(300px, 1fr)); gap: 18px; padding: 20px; align-items: start; justify-content: center; overflow: auto; }
+/* Grid: responsive auto-fit with a max of 4 columns.
+   - Each card has a flexible minimum width (tunable via --pos-card-min).
+   - The container max-width is clamped so the grid cannot grow past 4 columns.
+   - The layout gracefully collapses to 3/2/1 columns as viewport narrows. */
+.positions-grid {
+  /* Tunable variables: adjust --pos-card-min to control when columns wrap */
+  --pos-card-min: 280px; /* slightly smaller default to better fit laptop viewports */
+  --pos-grid-gap: 18px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--pos-card-min), 1fr));
+  gap: var(--pos-grid-gap);
+  padding: 20px;
+  align-items: start;
+  justify-content: center;
+  width: 100%;
+  margin: 0 auto;
+  /* prevent horizontal scrolling: let the grid wrap columns instead of overflowing */
+  overflow-x: hidden;
+}
+
 .positions-grid { scrollbar-width: thin; scrollbar-color: var(--accent) rgba(255,255,255,0.02); }
 .positions-grid::-webkit-scrollbar { width: 12px; }
 .positions-grid::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); border-radius: 10px; }
 .positions-grid::-webkit-scrollbar-thumb { background: linear-gradient(180deg, var(--accent)); border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
 .positions-grid::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #ffffff, #ffffff); }
 
-@media (max-width: 1300px) { .positions-grid { grid-template-columns: repeat(3, minmax(280px, 1fr)); } }
-@media (max-width: 1000px) { .positions-grid { grid-template-columns: repeat(2, minmax(260px, 1fr)); } }
-@media (max-width: 600px)  { .positions-grid { grid-template-columns: repeat(1, 1fr); padding: 12px; } }
+/* Fine-tune for very small screens */
+@media (max-width: 600px) {
+  .positions-grid { grid-template-columns: repeat(1, 1fr); padding: 12px; }
+}
+
+/* Ensure container doesn't allow horizontal overflow from cards */
+.positions-card { overflow-x: hidden; }
 
 /* Page-scoped components (moved from inline styles in view_positions.php) */
 .position-ticket {

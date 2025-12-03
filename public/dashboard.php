@@ -12,6 +12,28 @@ $user = $_SESSION['user'];
 $role = strtolower($user['role'] ?? '');
 $userDept = trim((string)($user['department'] ?? ''));
 
+// If the current user is not admin but no department is present in the session,
+// try to look it up from the `users` table (helps when session was populated
+// without department on login). Only apply department-based filtering when
+// we actually have a non-empty department value.
+if ($role !== 'admin' && $userDept === '' && !empty($user['id'])) {
+  try {
+    $stmtDept = $conn->prepare('SELECT department FROM users WHERE id = ? LIMIT 1');
+    if ($stmtDept) {
+      $uid = (int)$user['id'];
+      $stmtDept->bind_param('i', $uid);
+      $stmtDept->execute();
+      $resDept = $stmtDept->get_result();
+      if ($resDept && ($rowDept = $resDept->fetch_assoc())) {
+        $userDept = trim((string)($rowDept['department'] ?? ''));
+        // Persist back to session for subsequent page loads
+        $_SESSION['user']['department'] = $userDept;
+      }
+      $stmtDept->close();
+    }
+  } catch (Throwable $_) { /* ignore lookup failures */ }
+}
+
 // Page chrome
 $activePage = 'dashboard';
 $pageTitle = 'Dashboard';
@@ -29,7 +51,8 @@ try {
   // fallback to default 1 silently
 }
 
-// Build SQL for Open positions
+// Build SQL to fetch recent positions (show recent entries regardless of status).
+// This is more robust for dashboards where some positions may not have a status set.
 $rows = [];
 $totalOpen = 0;
 $sql = "
@@ -45,13 +68,15 @@ $sql = "
     COALESCE(s.status_name, '') AS status_name
   FROM positions p
   LEFT JOIN positions_status s ON p.status_id = s.status_id
-  WHERE p.status_id = ? /* Open only */
+  WHERE 1 = 1
 ";
-$types = 'i';
-$params = [ $openStatusId ];
+$types = '';
+$params = [];
 
 // Non-admins see only their department
-if ($role !== 'admin') {
+// Only apply department filter when we actually have a department value for the user
+$useDept = ($role !== 'admin' && $userDept !== '');
+if ($useDept) {
   $sql .= " AND p.department = ? ";
   $types .= 's';
   $params[] = $userDept;
@@ -62,14 +87,16 @@ $sql .= " ORDER BY p.created_at DESC LIMIT 100";
 try {
   $stmt = $conn->prepare($sql);
   if ($stmt) {
-    $stmt->bind_param($types, ...$params);
+    if (!empty($params)) {
+      $stmt->bind_param($types, ...$params);
+    }
     $stmt->execute();
     $res = $stmt->get_result();
     while ($r = $res->fetch_assoc()) $rows[] = $r;
     $stmt->close();
   }
   $totalOpen = count($rows);
-  } catch (Throwable $e) {
+} catch (Throwable $e) {
   // Render a soft error and continue with empty list
   echo '<div class="alert-error"><strong>Dashboard error:</strong> '.htmlspecialchars($e->getMessage()).'</div>';
 }
@@ -142,10 +169,11 @@ $interviewCounts = ['today'=>0,'week'=>0,'month'=>0];
 foreach ($ranges as $k => $start) {
   try {
     $sqlP = "SELECT COUNT(*) AS c FROM positions p WHERE p.created_at >= ?";
-    if ($role !== 'admin') $sqlP .= " AND p.department = ?";
+    $useDept = ($role !== 'admin' && $userDept !== '');
+    if ($useDept) $sqlP .= " AND p.department = ?";
     $stmtP = $conn->prepare($sqlP);
     if ($stmtP) {
-      if ($role !== 'admin') {
+      if ($useDept) {
         $stmtP->bind_param('ss', $start, $userDept);
       } else {
         $stmtP->bind_param('s', $start);
@@ -192,22 +220,25 @@ foreach ($ranges as $k => $start) {
 // Positions overview
 $totalPositions = 0; $activePositions = 0; $positionsInApproval = 0; $closedPositions = 0;
 try {
-  $q = 'SELECT COUNT(*) AS c FROM positions' . ($role !== 'admin' ? " WHERE department = '" . $conn->real_escape_string($userDept) . "'" : '');
+  $q = 'SELECT COUNT(*) AS c FROM positions' . (($role !== 'admin' && $userDept !== '') ? " WHERE department = '" . $conn->real_escape_string($userDept) . "'" : '');
   $r = $conn->query($q); if ($r) { $row = $r->fetch_assoc(); $totalPositions = (int)($row['c'] ?? 0); $r->free(); }
 
   // Active = positions_status = 'open'
-  $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id WHERE LOWER(COALESCE(s.status_name,'')) = 'open'" . ($role !== 'admin' ? " AND p.department = ?" : ''));
+  $useDept = ($role !== 'admin' && $userDept !== '');
+  $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id WHERE LOWER(COALESCE(s.status_name,'')) = 'open'" . ($useDept ? " AND p.department = ?" : ''));
   if ($stmt) {
-    if ($role !== 'admin') { $stmt->bind_param('s', $userDept); }
+    if ($useDept) { $stmt->bind_param('s', $userDept); }
     $stmt->execute(); $res = $stmt->get_result(); $r = $res->fetch_assoc(); $activePositions = (int)($r['c'] ?? 0); $stmt->close(); }
 
   // In Approval = name contains 'approval'
-  $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id WHERE LOWER(COALESCE(s.status_name,'')) LIKE '%approval%'" . ($role !== 'admin' ? " AND p.department = ?" : ''));
-  if ($stmt) { if ($role !== 'admin') $stmt->bind_param('s', $userDept); $stmt->execute(); $res = $stmt->get_result(); $r = $res->fetch_assoc(); $positionsInApproval = (int)($r['c'] ?? 0); $stmt->close(); }
+  $useDept = ($role !== 'admin' && $userDept !== '');
+  $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id WHERE LOWER(COALESCE(s.status_name,'')) LIKE '%approval%'" . ($useDept ? " AND p.department = ?" : ''));
+  if ($stmt) { if ($useDept) $stmt->bind_param('s', $userDept); $stmt->execute(); $res = $stmt->get_result(); $r = $res->fetch_assoc(); $positionsInApproval = (int)($r['c'] ?? 0); $stmt->close(); }
 
   // Closed: common keywords
-  $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id WHERE LOWER(COALESCE(s.status_name,'')) IN ('closed','filled','cancelled')" . ($role !== 'admin' ? " AND p.department = ?" : ''));
-  if ($stmt) { if ($role !== 'admin') $stmt->bind_param('s', $userDept); $stmt->execute(); $res = $stmt->get_result(); $r = $res->fetch_assoc(); $closedPositions = (int)($r['c'] ?? 0); $stmt->close(); }
+  $useDept = ($role !== 'admin' && $userDept !== '');
+  $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id WHERE LOWER(COALESCE(s.status_name,'')) IN ('closed','filled','cancelled')" . ($useDept ? " AND p.department = ?" : ''));
+  if ($stmt) { if ($useDept) $stmt->bind_param('s', $userDept); $stmt->execute(); $res = $stmt->get_result(); $r = $res->fetch_assoc(); $closedPositions = (int)($r['c'] ?? 0); $stmt->close(); }
 } catch (Throwable $_) {}
 
 // Applicants overview counts per stage
@@ -255,46 +286,96 @@ $events = array_slice($events, 0, 10);
 <link rel="stylesheet" href="assets/css/notify.css">
 <script src="assets/js/notify.js"></script>
 <link rel="stylesheet" href="styles/dashboard.css">
+<style>
+  /* Dashboard mini-card hover & click affordance (apply to any clickable status-card, including Total Positions) */
+  .status-card.clickable, .status-cards .status-card.clickable{ cursor:pointer; transition: transform .12s ease, box-shadow .12s ease; }
+  .status-card.clickable:hover, .status-cards .status-card.clickable:hover{ transform: translateY(-6px); box-shadow: 0 8px 20px rgba(0,0,0,0.08); }
+  .status-card.clickable:active, .status-cards .status-card.clickable:active{ transform: translateY(-2px); }
+  /* timeframe split dropdown */
+  .timeframe-split { position: relative; display: inline-block; }
+  .timeframe-menu { position: absolute; right: 0; top: calc(100% + 6px); background: #fff; border: 1px solid #e5e7eb; padding: 6px; border-radius: 6px; display: none; min-width: 140px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); z-index: 200; }
+  .timeframe-menu.show { display: block; }
+  .timeframe-menu .month-option { display: block; width:100%; padding:8px 10px; text-align:left; border:0; background:transparent; cursor:pointer; font-size:14px; }
+  .timeframe-menu .month-option:hover { background: rgba(0,0,0,0.04); }
+  .timeframe-split .caret { margin-left:6px; opacity:0.8; }
+</style>
+
+<?php
+// Fetch active departments and teams to allow dashboard to only display active groups
+$activeDepartments = [];
+$activeTeams = [];
+try {
+  $sqlD = "SELECT d.department_name, COALESCE(d.active,1) AS department_active, t.team_name, COALESCE(t.active,1) AS team_active FROM departments d LEFT JOIN teams t ON t.department_id = d.department_id ORDER BY d.department_name ASC, t.team_name ASC";
+  if ($resD = $conn->query($sqlD)) {
+    while ($r = $resD->fetch_assoc()) {
+      $dname = (string)($r['department_name'] ?? '');
+      $tname = (string)($r['team_name'] ?? '');
+      $dactive = isset($r['department_active']) ? (int)$r['department_active'] : 1;
+      $tactive = isset($r['team_active']) ? (int)$r['team_active'] : 1;
+      if ($dname !== '' && $dactive === 1) $activeDepartments[$dname] = 1;
+      if ($tname !== '' && $tactive === 1) $activeTeams[$tname] = 1;
+    }
+    $resD->free();
+  }
+} catch (Throwable $_) { /* ignore */ }
+
+// Export active sets to JS
+?>
 
 <main class="content-area">
   <div class="dashboard-container">
     <div id="summaryStack" class="summary-stack">
     <!-- Positions Card -->
     <div class="table-card">
-      <div class="hdr"><h3>Position Summary</h3>
+      <div class="hdr"><h3>Positions Summary</h3>
         <div class="actions">
           <div class="action-group">
             <button type="button" class="timeframe-btn" data-target="positions" data-range="today" title="Today">Today</button>
             <button type="button" class="timeframe-btn" data-target="positions" data-range="week" title="Last Week">Last Week</button>
-            <button type="button" class="timeframe-btn" data-target="positions" data-range="month" title="Last Month">Last Month</button>
+            <div class="timeframe-split">
+              <button type="button" id="positionsMonthBtn" class="timeframe-btn" data-target="positions" data-range="months-1" aria-haspopup="true" aria-expanded="false" title="Last Month">Last Month <span class="caret">▾</span></button>
+              <div id="positionsMonthMenu" class="timeframe-menu" role="menu" aria-hidden="true">
+                <button type="button" class="month-option" data-months="1">1 Month</button>
+                <button type="button" class="month-option" data-months="2">2 Months</button>
+                <button type="button" class="month-option" data-months="3">3 Months</button>
+                <button type="button" class="month-option" data-months="6">6 Months</button>
+                <button type="button" class="month-option" data-months="9">9 Months</button>
+                <button type="button" class="month-option" data-months="12">12 Months</button>
+              </div>
+            </div>
           </div>
           <a href="view_positions.php" class="btn-ghost">View All</a>
         </div>
       </div>
       <div class="inner">
-        <div class="summary-row"><div>Total Positions</div><div id="positionsTotal" class="value"><?= (int)$totalPositions ?></div></div>
-        <div class="status-cards">
-          <div class="status-card"><div class="label">Active</div><div class="value val-success"><?= (int)$activePositions ?></div></div>
-          <div class="status-card"><div class="label">In Approval</div><div class="value val-warning"><?= (int)$positionsInApproval ?></div></div>
-          <div class="status-card"><div class="label">Closed</div><div class="value val-muted"><?= (int)$closedPositions ?></div></div>
+        <div class="summary-row" style="display:flex;align-items:center;gap:8px;">
+          <div id="positionsTotalCard" class="status-card clickable" data-action="positions-total">
+            <div class="label">Total Positions</div>
+            <div class="value val-danger" id="positionsTotal"><?= (int)$totalPositions ?></div>
+          </div>
         </div>
-        <div class="recent-list">
-          <div class="small-muted">Recent Positions</div>
-          <?php if (!empty($rows)): ?>
-            <ul class="recent-grid">
-              <?php foreach (array_slice($rows, 0, 6) as $rp): ?>
-                <li class="recent-item">
-                  <div class="row">
-                    <div class="meta"><strong><?= htmlspecialchars($rp['title'] ?? '') ?></strong><div class="small-muted"><?= htmlspecialchars($rp['department'] ?? '—') ?><?= $rp['team'] ? ' / '.htmlspecialchars($rp['team']) : '' ?></div></div>
-                    <div class="meta muted-right">By <?= htmlspecialchars($rp['manager_name'] ?? 'Unassigned') ?><div class="small-muted"><?= htmlspecialchars(ago_days($rp['created_at'] ?? '')) ?> ago</div></div>
-                  </div>
-                </li>
-              <?php endforeach; ?>
-            </ul>
-          <?php else: ?>
-            <div class="empty">No positions to show.</div>
-          <?php endif; ?>
-        </div>
+        <?php
+          // Fetch all configured (active) position statuses. Counts will be computed client-side
+          // so they can respect the selected timeframe (today/week/month).
+          $positionStatuses = [];
+          try {
+            $stmt = $conn->prepare("SELECT s.status_id, s.status_name, s.status_color, COALESCE(s.sort_order, s.status_id) AS sort_order FROM positions_status s WHERE COALESCE(s.active,1) != 0 ORDER BY sort_order ASC");
+            if ($stmt) {
+              $stmt->execute();
+              $res = $stmt->get_result();
+              while ($r = $res->fetch_assoc()) $positionStatuses[] = $r;
+              $stmt->close();
+            }
+          } catch (Throwable $_) { /* ignore */ }
+        ?>
+
+        <div class="small-muted">Positions by Status</div>
+        <div id="statusCounters" class="status-cards" aria-live="polite"></div>
+        <!-- Department and Team counters (replaces recent positions list). Rendered client-side so timeframe filters apply immediately. -->
+        <div class="small-muted">Positions by Department</div>
+        <div id="deptCounters" class="status-cards" aria-live="polite"></div>
+        <div class="small-muted">Positions by Team</div>
+        <div id="teamCounters" class="status-cards" aria-live="polite"></div>
       </div>
     </div>
 
@@ -305,7 +386,17 @@ $events = array_slice($events, 0, 10);
           <div class="action-group">
             <button type="button" class="timeframe-btn" data-target="applicants" data-range="today" title="Today">Today</button>
             <button type="button" class="timeframe-btn" data-target="applicants" data-range="week" title="Last Week">Last Week</button>
-            <button type="button" class="timeframe-btn" data-target="applicants" data-range="month" title="Last Month">Last Month</button>
+            <div class="timeframe-split">
+              <button type="button" id="applicantsMonthBtn" class="timeframe-btn" data-target="applicants" data-range="months-1" aria-haspopup="true" aria-expanded="false" title="Last Month">Last Month <span class="caret">▾</span></button>
+              <div id="applicantsMonthMenu" class="timeframe-menu" role="menu" aria-hidden="true">
+                <button type="button" class="month-option" data-months="1">1 Month</button>
+                <button type="button" class="month-option" data-months="2">2 Months</button>
+                <button type="button" class="month-option" data-months="3">3 Months</button>
+                <button type="button" class="month-option" data-months="6">6 Months</button>
+                <button type="button" class="month-option" data-months="9">9 Months</button>
+                <button type="button" class="month-option" data-months="12">12 Months</button>
+              </div>
+            </div>
           </div>
           <a href="applicants.php" class="btn-ghost">View All</a>
         </div>
@@ -377,7 +468,17 @@ $events = array_slice($events, 0, 10);
           <div class="action-group">
             <button type="button" class="timeframe-btn" data-target="interviews" data-range="today" title="Today">Today</button>
             <button type="button" class="timeframe-btn" data-target="interviews" data-range="week" title="Last Week">Last Week</button>
-            <button type="button" class="timeframe-btn" data-target="interviews" data-range="month" title="Last Month">Last Month</button>
+            <div class="timeframe-split">
+              <button type="button" id="interviewsMonthBtn" class="timeframe-btn" data-target="interviews" data-range="months-1" aria-haspopup="true" aria-expanded="false" title="Last Month">Last Month <span class="caret">▾</span></button>
+              <div id="interviewsMonthMenu" class="timeframe-menu" role="menu" aria-hidden="true">
+                <button type="button" class="month-option" data-months="1">1 Month</button>
+                <button type="button" class="month-option" data-months="2">2 Months</button>
+                <button type="button" class="month-option" data-months="3">3 Months</button>
+                <button type="button" class="month-option" data-months="6">6 Months</button>
+                <button type="button" class="month-option" data-months="9">9 Months</button>
+                <button type="button" class="month-option" data-months="12">12 Months</button>
+              </div>
+            </div>
           </div>
           <a href="interviews.php" class="btn-ghost">View All</a>
         </div>
@@ -466,9 +567,13 @@ document.getElementById('openCreatePositionBtn')?.addEventListener('click', func
 // Embed server-provided data into JS for client-side filtering and in-place summaries
 const DASH_APPLICANTS = <?php echo json_encode($applicants, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?>;
 const DASH_INTERVIEWS = <?php echo json_encode($interviews, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?>;
+const DASH_POSITIONS = <?php echo json_encode($rows, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?>;
 const DASH_POSITION_COUNTS = <?php echo json_encode($positionCounts, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?>;
 const DASH_APPLICANT_COUNTS = <?php echo json_encode($applicantCounts, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?>;
 const DASH_INTERVIEW_COUNTS = <?php echo json_encode($interviewCounts, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?>;
+const DASH_ACTIVE_DEPARTMENTS = <?php echo json_encode(array_keys($activeDepartments), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?>;
+const DASH_ACTIVE_TEAMS = <?php echo json_encode(array_keys($activeTeams), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?>;
+const DASH_STATUSES = <?php echo json_encode(array_values($positionStatuses), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?>;
 
 function parseDate(val){ const t = val ? new Date(val) : null; return (t && !isNaN(t)) ? t : null; }
 function fmtWhen(val){ const d = parseDate(val); if (!d) return '—'; return d.toLocaleString(); }
@@ -481,11 +586,21 @@ function filterByRange(rows, key, range){
   let start = new Date();
   if (range === 'today') { start.setHours(0,0,0,0); }
   else if (range === 'week') { start.setDate(start.getDate() - 7); start.setHours(0,0,0,0); }
+  else if (typeof range === 'string' && range.startsWith('months')) {
+    const parts = range.split(/[-_:]/);
+    const months = parseInt(parts[1], 10) || 1;
+    start.setMonth(start.getMonth() - months);
+    start.setHours(0,0,0,0);
+  }
   else { start.setMonth(start.getMonth() - 1); start.setHours(0,0,0,0); }
   return rows.filter(r=>{
     try{
       // Match server-side semantics: strict date-based filtering
-      if (key === 'applicants') {
+          if (key === 'positions') {
+            const dt = parseDate(r.created_at);
+            return dt && dt >= start;
+          }
+          if (key === 'applicants') {
         const dt = parseDate(r.created_at);
         return dt && dt >= start;
       }
@@ -500,9 +615,127 @@ function filterByRange(rows, key, range){
 
 function renderPositions(range){
   const totalEl = document.getElementById('positionsTotal');
+  const rows = filterByRange(DASH_POSITIONS, 'positions', range || 'today');
   if (totalEl) {
-    const v = (DASH_POSITION_COUNTS && DASH_POSITION_COUNTS[range]) ? DASH_POSITION_COUNTS[range] : 0;
+    const v = (DASH_POSITION_COUNTS && DASH_POSITION_COUNTS[range]) ? DASH_POSITION_COUNTS[range] : rows.length;
     totalEl.textContent = String(v);
+  }
+
+  // Render department counters
+  const deptEl = document.getElementById('deptCounters');
+  const teamEl = document.getElementById('teamCounters');
+  if (deptEl) {
+    if (!rows.length) {
+      deptEl.innerHTML = '<div class="empty">No positions for this range.</div>';
+    } else {
+      const activeDepts = Array.isArray(DASH_ACTIVE_DEPARTMENTS) ? DASH_ACTIVE_DEPARTMENTS : [];
+      const activeSet = new Set(activeDepts.map(d => String(d)));
+      const byDept = rows.reduce((acc,r)=>{ const k = (r.department||'Unassigned'); acc[k] = (acc[k]||0)+1; return acc; }, {});
+      // Build cards only for active departments; aggregate others into 'Other'
+      const otherCount = Object.keys(byDept).reduce((sum,k)=> activeSet.has(k) ? sum : sum + (byDept[k]||0), 0);
+      const deptCards = Object.keys(byDept).filter(d => activeSet.has(d)).sort().map(d=>{
+        return '<div class="status-card clickable" data-department="'+encodeURIComponent(d)+'"><div class="label">'+escapeHtml(d)+'</div><div class="value">'+String(byDept[d])+'</div></div>';
+      });
+      if (otherCount > 0) deptCards.push('<div class="status-card"><div class="label">Other / Inactive</div><div class="value">'+String(otherCount)+'</div></div>');
+      deptEl.innerHTML = deptCards.join('');
+    }
+  }
+
+  // Render status counters (use configured statuses and color metadata)
+  const statusEl = document.getElementById('statusCounters');
+  if (statusEl) {
+    if (!rows.length) {
+      statusEl.innerHTML = '<div class="empty">No positions for this range.</div>';
+    } else {
+      const statuses = Array.isArray(DASH_STATUSES) ? DASH_STATUSES : [];
+      const statusMap = new Map(statuses.map(s => [String(s.status_id), s]));
+      const byStatus = rows.reduce((acc,r)=>{ const k = (r.status_id != null) ? String(r.status_id) : '__none__'; acc[k] = (acc[k]||0)+1; return acc; }, {});
+      // Build cards for known (active) statuses in configured order
+      const knownCards = [];
+      let knownSum = 0;
+      statuses.forEach(s=>{
+        const sid = String(s.status_id);
+        const cnt = byStatus[sid] || 0;
+        knownSum += cnt;
+        if (!cnt) return; // only show status cards with non-zero counts
+        const color = (s.status_color && s.status_color !== '') ? s.status_color : '#6b7280';
+        knownCards.push('<div class="status-card clickable" data-status-id="'+encodeURIComponent(sid)+'"><div class="label">'+escapeHtml(s.status_name || 'Unnamed')+'</div><div class="value" style="color:'+escapeHtml(color)+';background:transparent;">'+String(cnt)+'</div></div>');
+      });
+      // Aggregate any rows that don't belong to an active/known status
+      const otherCount = Object.keys(byStatus).reduce((sum,k)=> statusMap.has(k) ? sum : sum + (byStatus[k]||0), 0);
+      if (otherCount > 0) knownCards.push('<div class="status-card"><div class="label">Other / Inactive</div><div class="value">'+String(otherCount)+'</div></div>');
+      statusEl.innerHTML = knownCards.join('');
+    }
+  }
+  
+  // Attach click handlers for navigation to view_positions with filters
+  // Use event delegation on the dashboard container so handlers persist across renders
+  const dashContainer = document.querySelector('.dashboard-container');
+    if (dashContainer) {
+    dashContainer.addEventListener('click', function(ev){
+      const card = ev.target.closest && ev.target.closest('.status-card.clickable');
+      if (!card) return;
+      // determine which kind of card: status, department, team or an action like total
+      const statusId = card.getAttribute('data-status-id');
+      const dept = card.getAttribute('data-department');
+      const team = card.getAttribute('data-team');
+      const action = card.getAttribute('data-action');
+      // determine currently active timeframe for positions
+      const activeBtn = document.querySelector('.timeframe-btn[data-target="positions"].active');
+      const range = activeBtn ? activeBtn.getAttribute('data-range') : 'today';
+      // compute date range (YYYY-MM-DD)
+      const today = new Date();
+      function fmt(d){ const y = d.getFullYear(); const m = String(d.getMonth()+1).padStart(2,'0'); const day = String(d.getDate()).padStart(2,'0'); return y+'-'+m+'-'+day; }
+      let start = new Date();
+      if (range === 'today') { start.setHours(0,0,0,0); }
+      else if (range === 'week') { start.setDate(start.getDate() - 7); start.setHours(0,0,0,0); }
+      else if (typeof range === 'string' && range.startsWith('months')) {
+        const parts = range.split(/[-_:]/);
+        const months = parseInt(parts[1], 10) || 1;
+        start.setMonth(start.getMonth() - months);
+        start.setHours(0,0,0,0);
+      } else { start.setMonth(start.getMonth() - 1); start.setHours(0,0,0,0); }
+      const params = new URLSearchParams();
+      // set created date range so view_positions pre-fills created filters
+      params.set('fCreatedFrom', fmt(start));
+      params.set('fCreatedTo', fmt(today));
+
+      if (action === 'positions-total') {
+        // only date filters required — navigate to positions list
+      } else {
+        if (statusId) {
+          params.set('fStatus', decodeURIComponent(statusId));
+        }
+        if (dept) {
+          // view_positions expects lowercase department values in fDept select
+          params.set('fDept', decodeURIComponent(dept).toLowerCase());
+        }
+        if (team) {
+          params.set('fTeam', decodeURIComponent(team).toLowerCase());
+        }
+      }
+
+      // navigate to view_positions with filters applied
+      const url = 'view_positions.php?' + params.toString();
+      window.location.href = url;
+    });
+  }
+
+  // Render team counters
+  if (teamEl) {
+    if (!rows.length) {
+      teamEl.innerHTML = '<div class="empty">No positions for this range.</div>';
+    } else {
+      const activeTeams = Array.isArray(DASH_ACTIVE_TEAMS) ? DASH_ACTIVE_TEAMS : [];
+      const activeTSet = new Set(activeTeams.map(d => String(d)));
+      const byTeam = rows.reduce((acc,r)=>{ const k = (r.team||'Unassigned'); acc[k] = (acc[k]||0)+1; return acc; }, {});
+      const otherCountT = Object.keys(byTeam).reduce((sum,k)=> activeTSet.has(k) ? sum : sum + (byTeam[k]||0), 0);
+      const teamCards = Object.keys(byTeam).filter(t => activeTSet.has(t)).sort().map(t=>{
+        return '<div class="status-card clickable" data-team="'+encodeURIComponent(t)+'"><div class="label">'+escapeHtml(t)+'</div><div class="value">'+String(byTeam[t])+'</div></div>';
+      });
+      if (otherCountT > 0) teamCards.push('<div class="status-card"><div class="label">Other / Inactive</div><div class="value">'+String(otherCountT)+'</div></div>');
+      teamEl.innerHTML = teamCards.join('');
+    }
   }
 }
 
@@ -635,6 +868,86 @@ document.addEventListener('click', function (e) {
   try { document.querySelectorAll('.timeframe-btn[data-target="'+target+'"]').forEach(b=>b.classList.remove('active')); } catch(e){}
   btn.classList.add('active');
 });
+
+// Positions month-dropdown behaviour (select 1/2/3/6/9/12 months)
+(function(){
+  const btn = document.getElementById('positionsMonthBtn');
+  const menu = document.getElementById('positionsMonthMenu');
+  if (!btn || !menu) return;
+  btn.addEventListener('click', function(e){
+    e.stopPropagation();
+    const show = menu.classList.toggle('show');
+    btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+  });
+  menu.addEventListener('click', function(e){
+    const opt = e.target.closest && e.target.closest('.month-option');
+    if (!opt) return;
+    const months = parseInt(opt.getAttribute('data-months'), 10) || 1;
+    const range = 'months-' + months;
+    btn.setAttribute('data-range', range);
+    btn.innerHTML = 'Last ' + months + (months>1? ' Months':' Month') + ' <span class="caret">▾</span>';
+    menu.classList.remove('show');
+    btn.setAttribute('aria-expanded','false');
+    // set active and render positions
+    try { document.querySelectorAll('.timeframe-btn[data-target="positions"]').forEach(b=>b.classList.remove('active')); } catch(e){}
+    btn.classList.add('active');
+    try { renderPositions(range); } catch(e){}
+  });
+  // close when clicking outside
+  document.addEventListener('click', function(e){ if (!btn.contains(e.target) && !menu.contains(e.target)) { menu.classList.remove('show'); btn.setAttribute('aria-expanded','false'); } });
+})();
+
+// Applicants month-dropdown behaviour
+(function(){
+  const btn = document.getElementById('applicantsMonthBtn');
+  const menu = document.getElementById('applicantsMonthMenu');
+  if (!btn || !menu) return;
+  btn.addEventListener('click', function(e){
+    e.stopPropagation();
+    const show = menu.classList.toggle('show');
+    btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+  });
+  menu.addEventListener('click', function(e){
+    const opt = e.target.closest && e.target.closest('.month-option');
+    if (!opt) return;
+    const months = parseInt(opt.getAttribute('data-months'), 10) || 1;
+    const range = 'months-' + months;
+    btn.setAttribute('data-range', range);
+    btn.innerHTML = 'Last ' + months + (months>1? ' months':' month') + ' <span class="caret">▾</span>';
+    menu.classList.remove('show');
+    btn.setAttribute('aria-expanded','false');
+    try { document.querySelectorAll('.timeframe-btn[data-target="applicants"]').forEach(b=>b.classList.remove('active')); } catch(e){}
+    btn.classList.add('active');
+    try { renderApplicants(range); } catch(e){}
+  });
+  document.addEventListener('click', function(e){ if (!btn.contains(e.target) && !menu.contains(e.target)) { menu.classList.remove('show'); btn.setAttribute('aria-expanded','false'); } });
+})();
+
+// Interviews month-dropdown behaviour
+(function(){
+  const btn = document.getElementById('interviewsMonthBtn');
+  const menu = document.getElementById('interviewsMonthMenu');
+  if (!btn || !menu) return;
+  btn.addEventListener('click', function(e){
+    e.stopPropagation();
+    const show = menu.classList.toggle('show');
+    btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+  });
+  menu.addEventListener('click', function(e){
+    const opt = e.target.closest && e.target.closest('.month-option');
+    if (!opt) return;
+    const months = parseInt(opt.getAttribute('data-months'), 10) || 1;
+    const range = 'months-' + months;
+    btn.setAttribute('data-range', range);
+    btn.innerHTML = 'Last ' + months + (months>1? ' months':' month') + ' <span class="caret">▾</span>';
+    menu.classList.remove('show');
+    btn.setAttribute('aria-expanded','false');
+    try { document.querySelectorAll('.timeframe-btn[data-target="interviews"]').forEach(b=>b.classList.remove('active')); } catch(e){}
+    btn.classList.add('active');
+    try { renderInterviews(range); } catch(e){}
+  });
+  document.addEventListener('click', function(e){ if (!btn.contains(e.target) && !menu.contains(e.target)) { menu.classList.remove('show'); btn.setAttribute('aria-expanded','false'); } });
+})();
 
 // Ensure default 'today' buttons are set active on load for each target group
 ['positions','applicants','interviews'].forEach(function(t){

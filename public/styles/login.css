@@ -87,7 +87,18 @@ body {
 
 /* Logo in the left panel */
 .login-logo-wrap { display:flex; align-items:center; justify-content:center;}
-.login-logo { width: 150px; height: auto; display:block; object-fit:contain; }
+.login-logo {
+    width: 240px;
+    height: 120px;
+    display:block;
+    background-image: url('../assets/White-Bugatti-Logo.webp');
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+    transform: scale(2.1);
+    margin-bottom: 30px;
+    transform-origin: center;
+}
 
 /* Global fixed top-left logo */
 .global-top-logo {
@@ -228,6 +239,8 @@ a:hover { text-decoration: underline; color: #ffffff; }
     .login-image { display: none; }
     .login-left { padding: 18px; text-align: center; align-items: center; }
     .container { padding: 28px; }
+    /* scale down the login logo on smaller screens to avoid overflow */
+    .login-logo { width: 160px; height: 80px; }
 }
 
 /* Small improvements for accessibility */

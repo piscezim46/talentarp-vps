@@ -15,7 +15,7 @@
 
 /* Restore topbar/logo small visual rules (keeps header consistent across pages) */
 body { padding-top: var(--topbar-height); }
-.topbar .logo-section { display:flex; align-items:center; gap:12px; }
+.topbar .logo-section { display:flex; align-items:center; gap:8px; }
 .topbar .logo-section img { height:50px; width:auto; display:block; }
 .topbar .tagline { color: var(--accent); font-weight:600; font-size:16px; }
 
@@ -144,6 +144,21 @@ body {
   overflow: hidden;
   padding: 12px 12px;
 }
+
+/* Button hover + jump effect applied globally */
+button, .btn, .btn-primary, .btn-ghost, .btn-orange, input[type="button"], input[type="submit"] {
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+  will-change: transform;
+}
+button:hover, .btn:hover, .btn-primary:hover, .btn-ghost:hover, .btn-orange:hover, input[type="button"]:hover, input[type="submit"]:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+}
+button:active, .btn:active, .btn-primary:active, .btn-ghost:active, .btn-orange:active, input[type="button"]:active, input[type="submit"]:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+button:focus, .btn:focus, input[type="button"]:focus, input[type="submit"]:focus { outline: 3px solid rgba(53,156,246,0.12); outline-offset: 2px; }
 
 /* Scroll only inside cards/lists */
 .scroll-box {
