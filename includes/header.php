@@ -15,16 +15,13 @@ if (!empty($_SESSION['user']['force_password_reset']) && !in_array($currentScrip
 <head>
     <meta charset="utf-8">
     <title><?= htmlspecialchars($pageTitle ?? 'App') ?></title>
-    <!-- Site favicon (white logo) - prefer higher-resolution icons so chrome uses a crisp image -->
-    <!-- Provide larger sizes (64->128, and 256) so browsers use a 2x quality icon when available -->
-    <link rel="icon" type="image/webp" href="assets/White-Bugatti-Logo.webp" sizes="128x128">
-    <link rel="icon" type="image/webp" href="assets/White-Bugatti-Logo.webp" sizes="256x256">
-    <link rel="apple-touch-icon" href="assets/White-Bugatti-Logo.png" sizes="180x180">
+    <!-- Site favicon (white logo) - provide multiple sizes so browsers can choose larger icons -->
+    <link rel="icon" type="image/webp" href="assets/White-Bugatti-Logo.webp" sizes="32x32">
+    <link rel="icon" type="image/webp" href="assets/White-Bugatti-Logo.webp" sizes="64x64">
     <link rel="shortcut icon" href="assets/White-Bugatti-Logo.webp">
-    <!-- PNG fallbacks (same assets expected in public/assets) -->
+    <!-- PNG fallback (if you prefer a PNG at various sizes, place files in public/assets and update the paths) -->
+    <link rel="icon" type="image/png" href="assets/White-Bugatti-Logo.png" sizes="32x32">
     <link rel="icon" type="image/png" href="assets/White-Bugatti-Logo.png" sizes="64x64">
-    <link rel="icon" type="image/png" href="assets/White-Bugatti-Logo.png" sizes="128x128">
-    <link rel="icon" type="image/png" href="assets/White-Bugatti-Logo.png" sizes="256x256">
     <!-- existing meta / css links -->
     <!-- Font Awesome (fallback) -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" integrity="sha512-..." crossorigin="anonymous" referrerpolicy="no-referrer" />
