@@ -51,9 +51,23 @@ function validate_flow_input($conn, $data, $type = 'positions') {
     }
 
     // check sort uniqueness among active statuses
-    $table = ($type === 'positions') ? 'positions_status' : 'applicants_status';
+    // Map flow type to DB table and id column
+    if ($type === 'positions') {
+        $table = 'positions_status';
+        $idCol = 'status_id';
+    } elseif ($type === 'applicants') {
+        $table = 'applicants_status';
+        $idCol = 'status_id';
+    } elseif ($type === 'interviews') {
+        $table = 'interview_statuses';
+        $idCol = 'id';
+    } else {
+        // default to applicants for backward compatibility
+        $table = 'applicants_status';
+        $idCol = 'status_id';
+    }
 
-    $sql = "SELECT status_id FROM {$table} WHERE active = 1 AND sort_order = ? LIMIT 1";
+    $sql = "SELECT {$idCol} FROM {$table} WHERE active = 1 AND sort_order = ? LIMIT 1";
     $stmt = $conn->prepare($sql);
     if (!$stmt) {
         throw new FlowValidationException('DB prepare failed: ' . $conn->error, 500);

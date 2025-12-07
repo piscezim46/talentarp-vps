@@ -15,27 +15,28 @@ if (!empty($_SESSION['user']['force_password_reset']) && !in_array($currentScrip
 <head>
     <meta charset="utf-8">
     <title><?= htmlspecialchars($pageTitle ?? 'App') ?></title>
-    <!-- Site favicon (white logo) - provide multiple sizes so browsers can choose larger icons -->
-    <link rel="icon" type="image/webp" href="assets/White-Bugatti-Logo.webp" sizes="32x32">
-    <link rel="icon" type="image/webp" href="assets/White-Bugatti-Logo.webp" sizes="64x64">
-    <link rel="shortcut icon" href="assets/White-Bugatti-Logo.webp">
-    <!-- PNG fallback (if you prefer a PNG at various sizes, place files in public/assets and update the paths) -->
-    <link rel="icon" type="image/png" href="assets/White-Bugatti-Logo.png" sizes="32x32">
-    <link rel="icon" type="image/png" href="assets/White-Bugatti-Logo.png" sizes="64x64">
+    <!-- Site favicon served via PHP endpoint to centralize the asset and headers -->
+    <link rel="icon" type="image/png" href="bugatti-logo.php" sizes="32x32">
+    <link rel="icon" type="image/png" href="bugatti-logo.php" sizes="64x64">
+    <link rel="shortcut icon" href="bugatti-logo.php">
+    <!-- Keep webp/png static assets as fallback if needed (not used by default) -->
+    <link rel="alternate icon" type="image/webp" href="assets/White-Bugatti-Logo.webp" sizes="64x64">
     <!-- existing meta / css links -->
-    <!-- Font Awesome (fallback) -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" integrity="sha512-..." crossorigin="anonymous" referrerpolicy="no-referrer" />
-    <script>
-    (function(){
-      var found = Array.from(document.styleSheets||[]).some(s=>s.href && s.href.includes('font-awesome'));
-      if (!found) {
-        var l=document.createElement('link'); l.rel='stylesheet';
-        l.href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css';
-        l.crossOrigin='anonymous'; l.referrerPolicy='no-referrer';
-        document.head.appendChild(l);
-      }
-    })();
-    </script>
+        <!-- Font Awesome (CDN with local fallback) -->
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.0/css/all.min.css" crossorigin="anonymous" />
+        <script>
+        (function(){
+            var triedLocal = false;
+            function hasFA(){ return Array.from(document.styleSheets||[]).some(function(s){ return s && s.href && (s.href.indexOf('fontawesome') !== -1 || s.href.indexOf('font-awesome') !== -1 || (s.ownerNode && s.ownerNode.innerText && s.ownerNode.innerText.indexOf('.fa-') !== -1)); }); }
+            function injectLocal(){ if (triedLocal) return; triedLocal = true; var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'assets/vendor/fontawesome/css/all.min.css'; l.crossOrigin = 'anonymous'; document.head.appendChild(l); }
+            // if stylesheet not applied after a short delay, try local fallback
+            if (!hasFA()) {
+                // first try CDN again (some proxies block initial requests)
+                var l=document.createElement('link'); l.rel='stylesheet'; l.href='https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.0/css/all.min.css'; l.crossOrigin='anonymous'; document.head.appendChild(l);
+                setTimeout(function(){ if (!hasFA()) injectLocal(); }, 700);
+            }
+        })();
+        </script>
     <style>
     /* Defensive: force FA font for icon elements and pseudo-elements */
     .sidebar i, .sidebar .fa, .sidebar .fas, .sidebar [class*="fa-"], .sidebar .svg-icon {

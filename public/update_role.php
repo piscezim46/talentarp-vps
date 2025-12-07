@@ -1,5 +1,12 @@
 <?php
-session_start();
+// Start session only if not active
+if (function_exists('session_status')) {
+  if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+  }
+} else {
+  @session_start();
+}
 // suppress display of PHP warnings/notices to keep JSON responses clean
 ini_set('display_errors', 0);
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);

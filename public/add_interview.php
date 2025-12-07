@@ -1,7 +1,15 @@
 <?php
 require_once __DIR__ . '/../includes/db.php';
 header('Content-Type: application/json; charset=utf-8');
-session_start();
+// Start session only if not already active to avoid PHP notices when this
+// endpoint is called from a page that already started the session.
+if (function_exists('session_status')) {
+  if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+  }
+} else {
+  @session_start();
+}
 
 if (!isset($_SESSION['user'])) { echo json_encode(['ok'=>false,'message'=>'Not authenticated']); exit; }
 
@@ -31,6 +39,27 @@ $interview_dt = str_replace('T',' ',$interview_dt);
 // Ensure we store the numeric user id in created_by (required by DB)
 $created_by = isset($_SESSION['user']['id']) ? (int)$_SESSION['user']['id'] : 0;
 if (!$created_by) { echo json_encode(['ok'=>false,'message'=>'Missing user id in session']); exit; }
+
+// Conflict check: ensure the user doesn't already have an interview that overlaps
+// with the requested time. We assume an interview may take 20 minutes and treat
+// any overlapping 20-minute window as a conflict.
+try {
+  $chkSql = "SELECT id, interview_datetime FROM interviews WHERE created_by = ? AND (interview_datetime < DATE_ADD(?, INTERVAL 20 MINUTE) AND DATE_ADD(interview_datetime, INTERVAL 20 MINUTE) > ?) LIMIT 1";
+  $chk = $conn->prepare($chkSql);
+  if ($chk) {
+    // bind params: created_by (int), interview_dt (string) twice
+    $chk->bind_param('iss', $created_by, $interview_dt, $interview_dt);
+    $chk->execute();
+    $cres = $chk->get_result();
+    $crow = $cres ? $cres->fetch_assoc() : null;
+    $chk->close();
+    if ($crow) {
+      // return a helpful message and the conflicting interview row
+      echo json_encode(['ok' => false, 'message' => 'Time slot conflicts with another event', 'conflict' => $crow]);
+      exit;
+    }
+  }
+} catch (Throwable $_) { /* swallow DB errors here to avoid blocking scheduling if DB check fails unexpectedly */ }
 
 // Determine canonical status for newly created interviews. We always override
 // the incoming `status_id` for new records to ensure the DB's 'Created'

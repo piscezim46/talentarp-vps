@@ -72,7 +72,7 @@ function send_invitation_email($to, $username, $password_or_link, $opts = []) {
                 $err = 'SMTP_HOST not defined in config.php';
             } else {
                 try {
-                    $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+                   //  $mail = new PHPMailer\PHPMailer\PHPMailer(true);
                     $mail->isSMTP();
                     $mail->Host = SMTP_HOST;
                     $mail->SMTPAuth = true;

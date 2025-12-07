@@ -1,5 +1,12 @@
 <?php
-session_start();
+// Start session if not already active
+if (function_exists('session_status')) {
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        session_start();
+    }
+} else {
+    @session_start();
+}
 require_once '../includes/db.php';
 
 if (!isset($_SESSION['user'])) {
@@ -9,7 +16,8 @@ if (!isset($_SESSION['user'])) {
 $user = $_SESSION['user'];
 
 // Only admin or HR can update status
-if (!in_array($user['role'], ['admin', 'hr'])) {
+$roleNorm = isset($user['role']) ? strtolower(trim($user['role'])) : '';
+if (!in_array($roleNorm, ['admin','master admin','master_admin','master-admin','masteradmin'], true) && !in_array($user['role'], ['hr'])) {
     die("Access denied");
 }
 

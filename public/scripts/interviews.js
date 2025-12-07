@@ -179,13 +179,13 @@
             <span class="status-badge px-2 py-1 rounded text-xs" style="background: ${escapeHtml(statusColorForDisplay)}; color: ${escapeHtml(statusTextColor)};">${escapeHtml(statusNameForDisplay)}</span>
           </div>
           <div class="text-sm text-gray-400">Applicant</div>
-          <div class="font-semibold text-white">${escapeHtml(interview.applicant_name || '—')} <a title="Open applicant" target="_blank" href="get_applicant.php?id=${encodeURIComponent(interview.applicant_id || interview.applicant || '')}" style="margin-left:8px;color:#9ca3af;text-decoration:none;">🔗</a></div>
+          <div class="font-semibold text-white">${escapeHtml(interview.applicant_name || '—')} <a href="#" class="open-app-link" data-applicant-id="${encodeURIComponent(interview.applicant_id || interview.applicant || '')}" title="Open applicant" style="margin-left:8px;color:#9ca3af;text-decoration:none;">🔗</a></div>
           <div class="text-xs text-gray-400 mt-1">${(function(){ try{ var parts = []; if (interview.applicant_email) parts.push('<a href="mailto:' + encodeURIComponent(interview.applicant_email) + '" style="color:#9ca3af;text-decoration:none;">' + escapeHtml(interview.applicant_email) + '</a>'); if (interview.applicant_phone) { var ph = (interview.applicant_phone||'').toString().trim(); var phHref = ph.replace(/[^+0-9]/g,''); parts.push('<a href="tel:' + encodeURIComponent(phHref) + '" style="color:#9ca3af;text-decoration:none;margin-left:8px;">' + escapeHtml(interview.applicant_phone) + '</a>'); } return parts.join(' ');}catch(e){ return ''; } })()}</div>
         </div>
 
         <div>
           <div class="text-sm text-gray-400">Position</div>
-          <div class="text-white">${escapeHtml(interview.position_name || '—')} <a title="Open position" target="_blank" href="get_position.php?id=${encodeURIComponent(interview.position_id || interview.position || '')}" style="margin-left:8px;color:#9ca3af;text-decoration:none;">🔗</a></div>
+          <div class="text-white">${escapeHtml(interview.position_name || '—')} <a href="#" class="open-position-link" data-position-id="${encodeURIComponent(interview.position_id || interview.position || '')}" data-position-title="${encodeURIComponent(interview.position_name || '')}" title="Open position" style="margin-left:8px;color:#9ca3af;text-decoration:none;">🔗</a></div>
           <div class="text-xs text-gray-400">${escapeHtml(interview.department_name||'')} • ${escapeHtml(interview.team_name||'')}</div>
         </div>
 
@@ -203,11 +203,26 @@
         </div>
 
         <div class="flex gap-2">
-          ${ allowedNext.map(s => `<button class="drawerNextStatusBtn bg-blue-600 px-3 py-2 rounded text-white font-semibold" data-next-id="${escapeHtml(s.id)}" style="background:${escapeHtml(s.color||'#2563eb')};">${escapeHtml(s.name)}</button>`).join('') }
+          ${ allowedNext.map(function(s){
+              const btnTextColor = getContrastColor(s.color || '#2563eb');
+              return '<button class="drawerNextStatusBtn rounded font-semibold" data-next-id="' + escapeHtml(s.id) + '" style="background:' + escapeHtml(s.color || '#2563eb') + '; color:' + escapeHtml(btnTextColor) + '; padding:8px;">' + escapeHtml(s.name) + '</button>';
+            }).join('') }
         </div>
       </div>
     `;
     drawerContent.innerHTML = html;
+    // Attach handlers for the new open-app/open-position links so they open in-app when possible
+    try {
+      const appLinks = drawerContent.querySelectorAll('.open-app-link');
+      appLinks.forEach(function(el){ el.addEventListener('click', function(ev){ ev.preventDefault(); try{ const aid = decodeURIComponent(el.getAttribute('data-applicant-id')||''); if (!aid) return; if (window.location && String(window.location.pathname || '').indexOf('applicants.php') !== -1 && typeof openApplicant === 'function') { try { openApplicant(aid); } catch(e) { window.location.href = 'applicants.php?openApplicant=' + encodeURIComponent(aid); } } else { window.location.href = 'applicants.php?openApplicant=' + encodeURIComponent(aid); } }catch(e){ console.warn('open applicant handler failed', e); } }); });
+    } catch(e){}
+    try {
+      const posLinks = drawerContent.querySelectorAll('.open-position-link');
+      posLinks.forEach(function(el){ el.addEventListener('click', function(ev){ ev.preventDefault(); try{ const titleRaw = decodeURIComponent(el.getAttribute('data-position-title')||''); const titleVal = (titleRaw || '').toString().toLowerCase().trim(); if (!titleVal) return; // redirect to view_positions with title filter so the card appears
+        const target = 'view_positions.php?fTitle=' + encodeURIComponent(titleVal);
+        window.location.href = target;
+        }catch(e){ console.warn('open position handler failed', e); } }); });
+    } catch(e){}
     // attach handlers for all next-status buttons (may be multiple)
     const nextBtns = drawerContent.querySelectorAll('.drawerNextStatusBtn');
     nextBtns.forEach(btn => {
@@ -467,6 +482,7 @@
     const CalendarCtor = window.__FC_CTOR || (window.FullCalendar && window.FullCalendar.Calendar) || null;
     if (!CalendarCtor || typeof CalendarCtor !== 'function') {
       console.error('FullCalendar Calendar constructor not available. Calendar cannot be initialized.');
+      showCalendarError('Calendar is not loading', 'FullCalendar constructor not available. The loaded build may not be compatible.');
       return;
     }
 
@@ -644,6 +660,45 @@
     const statuses = window._INTERVIEW_STATUSES || {};
     console.log('Interviews data:', list);
     console.log('Interview statuses:', statuses);
+    // Helper to display a centered error message inside the calendar area
+    function showCalendarError(title, reason){
+      try{
+        const host = document.getElementById('calendar') || document.getElementById('calendarContainer');
+        if (!host) return;
+        host.innerHTML = '';
+        const wrapper = document.createElement('div');
+        wrapper.style.minHeight = '260px';
+        wrapper.style.display = 'flex';
+        wrapper.style.flexDirection = 'column';
+        wrapper.style.alignItems = 'center';
+        wrapper.style.justifyContent = 'center';
+        wrapper.style.gap = '10px';
+        wrapper.style.textAlign = 'center';
+        wrapper.style.padding = '20px';
+        wrapper.style.color = 'var(--text-main, #111827)';
+        wrapper.innerHTML = `
+            <div style="font-size:18px;font-weight:700;margin-bottom:6px;">${escapeHtml(title || 'Calendar is not loading')}</div>
+            <div style="color:var(--text-muted,#6b7280);max-width:720px;">${escapeHtml(reason || 'Service provider not responding, or network/CORS issue. You can retry loading the calendar.' )}</div>
+          `;
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.textContent = 'Retry loading calendar';
+        retry.className = 'btn';
+        retry.style.marginTop = '8px';
+        retry.addEventListener('click', function(){
+          // attempt to re-run the boot flow: try to load FullCalendar again
+          host.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted,#6b7280)">Retrying&hellip;</div>';
+          // small delay to allow UI to update
+          setTimeout(function(){ ensureFullCalendar().then(fc => {
+            if (!fc) { showCalendarError('Calendar is not loading', 'Retry failed — provider still unreachable.'); return; }
+            try { const events = buildEvents(window._INTERVIEWS || [], window._INTERVIEW_STATUSES || {}); initCalendar(events); } catch(e){ showCalendarError('Calendar initialization failed', String(e && e.message ? e.message : e)); }
+          }); }, 60);
+        });
+        wrapper.appendChild(retry);
+        host.appendChild(wrapper);
+      }catch(e){ console.warn('showCalendarError failed', e); }
+    }
+
     // Ensure FullCalendar is available. Some CDN builds are ESM and contain `import` statements;
     // in that case we try a dynamic import so we can proceed without a hard failure.
     function ensureFullCalendar(){
@@ -655,11 +710,49 @@
         return Promise.resolve(window.__FC);
       }
 
-      // Otherwise inject UMD/global script tags (core first, then plugins).
-      const base = 'https://unpkg.com';
-      const coreUrl = base + '/@fullcalendar/core@5.11.3/main.global.min.js';
-      const daygridUrl = base + '/@fullcalendar/daygrid@5.11.3/main.global.min.js';
-      const interactionUrl = base + '/@fullcalendar/interaction@5.11.3/main.global.min.js';
+      // Otherwise attempt to load an ESM build via dynamic import first (some CDNs publish ESM-only builds),
+      // and fall back to injecting UMD/global script tags if import fails. Try multiple CDN providers
+      // to increase resilience in air-gapped or restricted environments.
+      const versions = {
+        core: '5.11.3',
+        daygrid: '5.11.3',
+        interaction: '5.11.3'
+      };
+      // Candidate CDN base prefixes we will try
+      const cdnBases = ['https://cdn.jsdelivr.net/npm', 'https://unpkg.com'];
+
+      // Try dynamic import (ESM) first. If the file is an ES module, import() will succeed and return module exports.
+      // If import fails (CORS or not an ESM build) we fall back to script injection.
+      async function tryImportBuild(){
+        // Try dynamic import() from multiple CDN sources. If one succeeds, normalize exports.
+        for (const base of cdnBases) {
+          const coreUrl = base + `/@fullcalendar/core@${versions.core}/main.min.js`;
+          try {
+            const coreMod = await import(/* webpackIgnore: true */ coreUrl);
+            const fc = coreMod && (coreMod.FullCalendar || coreMod.default || coreMod);
+            let daygrid = null, interaction = null;
+            try { const d = await import(/* webpackIgnore: true */ base + `/@fullcalendar/daygrid@${versions.daygrid}/main.min.js`); daygrid = d && (d.default || d); } catch(e) { console.warn('FullCalendar dayGrid dynamic import failed', e); }
+            try { const it = await import(/* webpackIgnore: true */ base + `/@fullcalendar/interaction@${versions.interaction}/main.min.js`); interaction = it && (it.default || it); } catch(e) { console.warn('FullCalendar interaction dynamic import failed', e); }
+            if (!window.FullCalendar) {
+              if (fc && fc.Calendar) window.FullCalendar = fc;
+              else if (fc && fc.calendar) window.FullCalendar = fc;
+              else console.warn('Dynamic import returned unknown FullCalendar shape', fc);
+            }
+            if (window.FullCalendar) {
+              try { window.FullCalendar.dayGridPlugin = (daygrid && (daygrid.dayGridPlugin || daygrid.default || daygrid)) || window.FullCalendar.dayGridPlugin || null; } catch(e){}
+              try { window.FullCalendar.interactionPlugin = (interaction && (interaction.interactionPlugin || interaction.default || interaction)) || window.FullCalendar.interactionPlugin || null; } catch(e){}
+              window.__FC = window.FullCalendar;
+              window.__FC_CTOR = window.FullCalendar.Calendar || null;
+              window.__FC_PLUGINS = { dayGrid: window.FullCalendar.dayGridPlugin || null, interaction: window.FullCalendar.interactionPlugin || null };
+              return window.__FC;
+            }
+          } catch (e) {
+            console.warn('FullCalendar dynamic import failed for base', base, e);
+            // try next base
+          }
+        }
+        return null;
+      }
 
       function inject(url){
         return new Promise((resolve, reject) => {
@@ -672,14 +765,39 @@
         });
       }
 
-      // Load core, then plugins (plugins errors are non-fatal)
-      return inject(coreUrl)
-        .then(() => Promise.all([
-          inject(daygridUrl).catch(e => { console.warn('daygrid load failed', e); }),
-          inject(interactionUrl).catch(e => { console.warn('interaction load failed', e); })
-        ]))
-        .then(() => {
-          if (typeof window.FullCalendar === 'undefined') return null;
+      // Try ESM import, then fall back to injecting UMD scripts
+      return tryImportBuild()
+        .then(async result => {
+          if (result) return result;
+          // ESM import didn't yield usable fc — try UMD script approach
+          // Script-injection fallback: try multiple core/plugin candidates
+          const coreCandidates = [
+            `https://cdn.jsdelivr.net/npm/@fullcalendar/core@${versions.core}/main.min.js`,
+            `https://unpkg.com/@fullcalendar/core@${versions.core}/main.min.js`,
+            `https://cdn.jsdelivr.net/npm/fullcalendar@${versions.core}/main.min.js`
+          ];
+          const daygridCandidates = [
+            `https://cdn.jsdelivr.net/npm/@fullcalendar/daygrid@${versions.daygrid}/main.min.js`,
+            `https://unpkg.com/@fullcalendar/daygrid@${versions.daygrid}/main.min.js`
+          ];
+          const interactionCandidates = [
+            `https://cdn.jsdelivr.net/npm/@fullcalendar/interaction@${versions.interaction}/main.min.js`,
+            `https://unpkg.com/@fullcalendar/interaction@${versions.interaction}/main.min.js`
+          ];
+
+          let loaded = false;
+          for (const coreCandidate of coreCandidates) {
+            try {
+              await inject(coreCandidate);
+              // try plugins (take first that loads)
+              for (const d of daygridCandidates) { try { await inject(d); break; } catch(e){ console.warn('daygrid candidate failed', d, e); } }
+              for (const i of interactionCandidates) { try { await inject(i); break; } catch(e){ console.warn('interaction candidate failed', i, e); } }
+              if (typeof window.FullCalendar !== 'undefined') { loaded = true; break; }
+            } catch(e) {
+              console.warn('core candidate failed', coreCandidate, e);
+            }
+          }
+          if (!loaded) return null;
           window.__FC = window.FullCalendar;
           window.__FC_CTOR = window.FullCalendar.Calendar || null;
           window.__FC_PLUGINS = { dayGrid: window.FullCalendar.dayGridPlugin || null, interaction: window.FullCalendar.interactionPlugin || null };
@@ -691,6 +809,8 @@
     ensureFullCalendar().then(fc => {
       if (!fc) {
         console.error('FullCalendar not available. Calendar will not be initialized.');
+        // show a user-friendly message in the calendar container
+        showCalendarError('Calendar is not loading', 'Service provider not responding, or network/CORS issue.');
         // render filters/table only
         populateFilters(list, statuses);
         renderTable(list);
@@ -706,8 +826,9 @@
       const calendarEl = document.getElementById('calendar') || document.getElementById('calendarContainer');
       if (!calendarEl) {
         console.error('Calendar container not found: expected #calendar or #calendarContainer');
+        showCalendarError('Calendar is not loading', 'Calendar container element not found on the page.');
       } else {
-        initCalendar(events);
+        try { initCalendar(events); } catch (e) { console.error('initCalendar threw', e); showCalendarError('Calendar initialization failed', String(e && e.message ? e.message : e)); }
       }
     });
 

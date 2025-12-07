@@ -1,5 +1,12 @@
 <?php
-session_start();
+// Start session only if not already active to avoid PHP notices
+if (function_exists('session_status')) {
+  if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+  }
+} else {
+  @session_start();
+}
 require_once __DIR__ . '/../includes/db.php';
 
 if (!isset($_SESSION['user'])) {
@@ -16,42 +23,50 @@ $interviews = [];
 $statuses_map = [];
 $query_error = '';
 try {
-    $sql = "SELECT i.id, i.position_id AS position_id, i.applicant_id AS applicant_id, i.interview_datetime AS start, DATE_ADD(i.interview_datetime, INTERVAL 30 MINUTE) AS end, i.status_id, i.comments, a.full_name AS applicant_name, a.email AS applicant_email, a.phone AS applicant_phone, p.title AS position_name, p.department AS department_name, p.team AS team_name, p.manager_name AS manager_name, COALESCE(u.name,'') AS created_by_name, COALESCE(d.department_name,'') AS created_by_department, s.name AS status_name, s.status_color AS status_color
-      FROM interviews i
-      LEFT JOIN applicants a ON i.applicant_id = a.applicant_id
-      LEFT JOIN positions p ON i.position_id = p.id
-      LEFT JOIN users u ON i.created_by = u.id
-      LEFT JOIN departments d ON u.department_id = d.department_id
-      LEFT JOIN interview_statuses s ON i.status_id = s.id
-      ORDER BY i.interview_datetime DESC";
-  if ($res = $conn->query($sql)) {
-    while ($r = $res->fetch_assoc()) {
-        $interviews[] = [
-        'id' => (int)$r['id'],
-        'position_id' => isset($r['position_id']) ? (int)$r['position_id'] : null,
-        'applicant_id' => isset($r['applicant_id']) ? (int)$r['applicant_id'] : null,
-        'applicant_name' => $r['applicant_name'] ?? '',
-        'applicant_email' => $r['applicant_email'] ?? '',
-        'applicant_phone' => $r['applicant_phone'] ?? '',
-        'position_name' => $r['position_name'] ?? '',
-        'department_name' => $r['department_name'] ?? '',
-        'team_name' => $r['team_name'] ?? '',
-        'manager_name' => $r['manager_name'] ?? '',
-        'created_by_name' => $r['created_by_name'] ?? '',
-        'created_by_department' => $r['created_by_department'] ?? '',
-        'start' => $r['start'] ?? null,
-        'end' => $r['end'] ?? null,
-        'status_id' => isset($r['status_id']) ? (int)$r['status_id'] : null,
-        'status_name' => $r['status_name'] ?? '',
-        'status_color' => $r['status_color'] ?? '#6b7280',
-        'comments' => $r['comments'] ?? ''
-      ];
+    // Load interviews (no department restriction)
+    try {
+      $sql = "SELECT i.id, i.position_id AS position_id, i.applicant_id AS applicant_id, i.interview_datetime AS start, DATE_ADD(i.interview_datetime, INTERVAL 30 MINUTE) AS end, i.status_id, i.comments, a.full_name AS applicant_name, a.email AS applicant_email, a.phone AS applicant_phone, p.title AS position_name, p.department AS department_name, p.team AS team_name, p.manager_name AS manager_name, COALESCE(u.name,'') AS created_by_name, COALESCE(d.department_name,'') AS created_by_department, s.name AS status_name, s.status_color AS status_color
+        FROM interviews i
+        LEFT JOIN applicants a ON i.applicant_id = a.applicant_id
+        LEFT JOIN positions p ON i.position_id = p.id
+        LEFT JOIN users u ON i.created_by = u.id
+        LEFT JOIN departments d ON u.department_id = d.department_id
+        LEFT JOIN interview_statuses s ON i.status_id = s.id
+        ORDER BY i.interview_datetime DESC";
+
+      $stmt = $conn->prepare($sql);
+      if ($stmt) {
+        $stmt->execute();
+        $res = $stmt->get_result();
+        while ($r = $res->fetch_assoc()) {
+          $interviews[] = [
+            'id' => (int)$r['id'],
+            'position_id' => isset($r['position_id']) ? (int)$r['position_id'] : null,
+            'applicant_id' => isset($r['applicant_id']) ? (int)$r['applicant_id'] : null,
+            'applicant_name' => $r['applicant_name'] ?? '',
+            'applicant_email' => $r['applicant_email'] ?? '',
+            'applicant_phone' => $r['applicant_phone'] ?? '',
+            'position_name' => $r['position_name'] ?? '',
+            'department_name' => $r['department_name'] ?? '',
+            'team_name' => $r['team_name'] ?? '',
+            'manager_name' => $r['manager_name'] ?? '',
+            'created_by_name' => $r['created_by_name'] ?? '',
+            'created_by_department' => $r['created_by_department'] ?? '',
+            'start' => $r['start'] ?? null,
+            'end' => $r['end'] ?? null,
+            'status_id' => isset($r['status_id']) ? (int)$r['status_id'] : null,
+            'status_name' => $r['status_name'] ?? '',
+            'status_color' => $r['status_color'] ?? '#6b7280',
+            'comments' => $r['comments'] ?? ''
+          ];
+        }
+        $stmt->close();
+      } else {
+        $query_error = $conn->error;
+      }
+    } catch (Throwable $e) {
+      $query_error = $conn->error;
     }
-    $res->free();
-  } else {
-    // capture SQL error for debugging
-    $query_error = $conn->error;
-  }
 } catch (Throwable $e) {
   error_log('load interviews failed: ' . $e->getMessage());
 }
@@ -125,18 +140,30 @@ try {
   }
 } catch (Throwable $_) {}
 
-// Load distinct managers from positions table (existing pattern in view_positions.php)
+// Load distinct managers from positions table (apply department filter when applicable)
 $managers = [];
-try {
-  $mres = $conn->query("SELECT DISTINCT COALESCE(NULLIF(TRIM(manager_name),''),'') AS manager_name FROM positions WHERE manager_name IS NOT NULL AND TRIM(manager_name) <> '' ORDER BY manager_name");
-  if ($mres) { while ($r = $mres->fetch_assoc()) $managers[] = $r['manager_name']; $mres->free(); }
+  try {
+  $sqlM = "SELECT DISTINCT COALESCE(NULLIF(TRIM(p.manager_name),'') ,'') AS manager_name FROM positions p WHERE p.manager_name IS NOT NULL AND TRIM(p.manager_name) <> '' ORDER BY manager_name";
+  $stmtM = $conn->prepare($sqlM);
+  if ($stmtM) {
+    $stmtM->execute();
+    $mres = $stmtM->get_result();
+    while ($r = $mres->fetch_assoc()) $managers[] = $r['manager_name'];
+    $stmtM->close();
+  }
 } catch (Throwable $_) {}
 
-// Load positions that have interviews (unique)
+// Load positions that have interviews (unique) with department restriction when needed
 $positions_with_interviews = [];
-try {
-  $pres = $conn->query("SELECT DISTINCT p.id, p.title FROM positions p JOIN interviews i ON i.position_id = p.id ORDER BY p.title");
-  if ($pres) { while ($p = $pres->fetch_assoc()) $positions_with_interviews[] = $p; $pres->free(); }
+  try {
+  $sqlP = "SELECT DISTINCT p.id, p.title FROM positions p JOIN interviews i ON i.position_id = p.id ORDER BY p.title";
+  $stmtP = $conn->prepare($sqlP);
+  if ($stmtP) {
+    $stmtP->execute();
+    $pres = $stmtP->get_result();
+    while ($p = $pres->fetch_assoc()) $positions_with_interviews[] = $p;
+    $stmtP->close();
+  }
 } catch (Throwable $_) {}
 
 $departments_json = json_encode($departments, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP);
@@ -151,7 +178,8 @@ $positions_with_interviews_json = json_encode($positions_with_interviews, JSON_H
 <link href="https://cdn.jsdelivr.net/npm/@fullcalendar/daygrid@5.11.3/main.min.css" rel="stylesheet">
 <link href="styles/interviews.css" rel="stylesheet">
 <link rel="stylesheet" href="assets/css/notify.css">
-<script src="https://cdn.jsdelivr.net/npm/lucide@0.243.0/dist/lucide.min.js"></script>
+<!-- Load Lucide icons (use CDN latest dist entrypoint so minor version mismatches don't 404) -->
+<script src="https://cdn.jsdelivr.net/npm/lucide/dist/lucide.min.js"></script>
 <!-- Load the global/UMD builds to ensure `window.FullCalendar` is available and no `import` syntax is parsed. -->
 <!-- FullCalendar is imported dynamically by the page script (module builds) to support different CDN shapes. -->
 

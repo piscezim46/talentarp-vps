@@ -73,14 +73,8 @@ $sql = "
 $types = '';
 $params = [];
 
-// Non-admins see only their department
-// Only apply department filter when we actually have a department value for the user
-$useDept = ($role !== 'admin' && $userDept !== '');
-if ($useDept) {
-  $sql .= " AND p.department = ? ";
-  $types .= 's';
-  $params[] = $userDept;
-}
+// Department filtering disabled (show all departments)
+$useDept = false;
 
 $sql .= " ORDER BY p.created_at DESC LIMIT 100";
 
@@ -122,7 +116,8 @@ $terminalInterviewNames = [ 'cancelled','completed' ];
 
 $applicants = [];
 try {
-  $sqlA = "SELECT a.applicant_id, a.full_name, a.status_id, COALESCE(s.status_name,'') AS status_name, a.created_at FROM applicants a LEFT JOIN applicants_status s ON a.status_id = s.status_id WHERE (LOWER(COALESCE(s.status_name,'')) NOT IN ('" . implode("','", array_map('addslashes', $terminalApplicantNames)) . "') ) OR a.created_at >= ? ORDER BY a.created_at DESC LIMIT 500";
+  // Include position title and team where available so dashboard can display richer info
+  $sqlA = "SELECT a.applicant_id, a.full_name, a.status_id, COALESCE(s.status_name,'') AS status_name, a.created_at, a.position_id, COALESCE(p.title,'') AS position_title, COALESCE(p.team,'') AS team_name FROM applicants a LEFT JOIN applicants_status s ON a.status_id = s.status_id LEFT JOIN positions p ON a.position_id = p.id WHERE (LOWER(COALESCE(s.status_name,'')) NOT IN ('" . implode("','", array_map('addslashes', $terminalApplicantNames)) . "') ) OR a.created_at >= ? ORDER BY a.created_at DESC LIMIT 500";
   $stmtA = $conn->prepare($sqlA);
   if ($stmtA) {
     $stmtA->bind_param('s', $monthAgo);
@@ -169,15 +164,10 @@ $interviewCounts = ['today'=>0,'week'=>0,'month'=>0];
 foreach ($ranges as $k => $start) {
   try {
     $sqlP = "SELECT COUNT(*) AS c FROM positions p WHERE p.created_at >= ?";
-    $useDept = ($role !== 'admin' && $userDept !== '');
-    if ($useDept) $sqlP .= " AND p.department = ?";
+    $useDept = false;
     $stmtP = $conn->prepare($sqlP);
     if ($stmtP) {
-      if ($useDept) {
-        $stmtP->bind_param('ss', $start, $userDept);
-      } else {
-        $stmtP->bind_param('s', $start);
-      }
+      $stmtP->bind_param('s', $start);
       $stmtP->execute();
       $r = $stmtP->get_result()->fetch_assoc();
       $positionCounts[$k] = isset($r['c']) ? (int)$r['c'] : 0;
@@ -220,25 +210,24 @@ foreach ($ranges as $k => $start) {
 // Positions overview
 $totalPositions = 0; $activePositions = 0; $positionsInApproval = 0; $closedPositions = 0;
 try {
-  $q = 'SELECT COUNT(*) AS c FROM positions' . (($role !== 'admin' && $userDept !== '') ? " WHERE department = '" . $conn->real_escape_string($userDept) . "'" : '');
+  $q = 'SELECT COUNT(*) AS c FROM positions';
   $r = $conn->query($q); if ($r) { $row = $r->fetch_assoc(); $totalPositions = (int)($row['c'] ?? 0); $r->free(); }
 
   // Active = positions_status = 'open'
-  $useDept = ($role !== 'admin' && $userDept !== '');
-  $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id WHERE LOWER(COALESCE(s.status_name,'')) = 'open'" . ($useDept ? " AND p.department = ?" : ''));
+  $useDept = false;
+  $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id WHERE LOWER(COALESCE(s.status_name,'')) = 'open'");
   if ($stmt) {
-    if ($useDept) { $stmt->bind_param('s', $userDept); }
     $stmt->execute(); $res = $stmt->get_result(); $r = $res->fetch_assoc(); $activePositions = (int)($r['c'] ?? 0); $stmt->close(); }
 
   // In Approval = name contains 'approval'
-  $useDept = ($role !== 'admin' && $userDept !== '');
-  $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id WHERE LOWER(COALESCE(s.status_name,'')) LIKE '%approval%'" . ($useDept ? " AND p.department = ?" : ''));
-  if ($stmt) { if ($useDept) $stmt->bind_param('s', $userDept); $stmt->execute(); $res = $stmt->get_result(); $r = $res->fetch_assoc(); $positionsInApproval = (int)($r['c'] ?? 0); $stmt->close(); }
+  $useDept = false;
+  $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id WHERE LOWER(COALESCE(s.status_name,'')) LIKE '%approval%'");
+  if ($stmt) { $stmt->execute(); $res = $stmt->get_result(); $r = $res->fetch_assoc(); $positionsInApproval = (int)($r['c'] ?? 0); $stmt->close(); }
 
   // Closed: common keywords
-  $useDept = ($role !== 'admin' && $userDept !== '');
-  $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id WHERE LOWER(COALESCE(s.status_name,'')) IN ('closed','filled','cancelled')" . ($useDept ? " AND p.department = ?" : ''));
-  if ($stmt) { if ($useDept) $stmt->bind_param('s', $userDept); $stmt->execute(); $res = $stmt->get_result(); $r = $res->fetch_assoc(); $closedPositions = (int)($r['c'] ?? 0); $stmt->close(); }
+  $useDept = false;
+  $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id WHERE LOWER(COALESCE(s.status_name,'')) IN ('closed','filled','cancelled')");
+  if ($stmt) { $stmt->execute(); $res = $stmt->get_result(); $r = $res->fetch_assoc(); $closedPositions = (int)($r['c'] ?? 0); $stmt->close(); }
 } catch (Throwable $_) {}
 
 // Applicants overview counts per stage
@@ -268,7 +257,7 @@ try {
 $events = [];
 try {
   // Positions created
-  $sql = "SELECT p.created_at AS ts, COALESCE(u.name,'System') AS user_name, CONCAT('New position created: ', p.title) AS message FROM positions p LEFT JOIN users u ON p.created_by = u.id" . ($role !== 'admin' ? " WHERE p.department = '" . $conn->real_escape_string($userDept) . "'" : '') . " ORDER BY p.created_at DESC LIMIT 10";
+  $sql = "SELECT p.created_at AS ts, COALESCE(u.name,'System') AS user_name, CONCAT('New position created: ', p.title) AS message FROM positions p LEFT JOIN users u ON p.created_by = u.id ORDER BY p.created_at DESC LIMIT 10";
   $res = $conn->query($sql); if ($res) { while ($r = $res->fetch_assoc()) $events[] = $r; $res->free(); }
   // Applicant status history
   $sql = "SELECT h.updated_at AS ts, COALESCE(u.name,'System') AS user_name, CONCAT('Applicant #', h.applicant_id, ' moved to ', COALESCE(s.status_name,'')) AS message, h.reason FROM applicants_status_history h LEFT JOIN users u ON h.updated_by = u.id LEFT JOIN applicants_status s ON h.status_id = s.status_id ORDER BY h.updated_at DESC LIMIT 10";
@@ -298,6 +287,56 @@ $events = array_slice($events, 0, 10);
   .timeframe-menu .month-option { display: block; width:100%; padding:8px 10px; text-align:left; border:0; background:transparent; cursor:pointer; font-size:14px; }
   .timeframe-menu .month-option:hover { background: rgba(0,0,0,0.04); }
   .timeframe-split .caret { margin-left:6px; opacity:0.8; }
+  /* Positions details responsive layout */
+  .positions-total { flex: 0 0 220px; width: 220px; box-sizing: border-box; padding: 8px; }
+  .positions-details-grid { display: grid; grid-template-columns: 1fr; gap: 12px; width: 100%; }
+  .positions-group .small-muted { margin-bottom: 6px; }
+  .positions-group .status-cards { display: block; }
+
+  /* Keep Total Positions visually consistent (no size change), other cards are flexible.
+     On wider viewports allow the details to flow into 3 columns. */
+  @media (min-width: 980px) {
+    .summary-row { align-items:flex-start; }
+    .positions-details-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+  /* When a status-cards container has many items, enable an internal scrollbar
+     so only the mini-card scrolls instead of the whole page. Limit height to
+     avoid overly tall cards while keeping layout stable. */
+  .status-cards {
+    max-height: 260px;
+    overflow-y: auto;
+    padding-right: 6px; /* allow space for scrollbar */
+    box-sizing: border-box;
+  }
+
+  /* Lightweight custom scrollbar for WebKit and Firefox */
+  .status-cards::-webkit-scrollbar { width: 10px; }
+  .status-cards::-webkit-scrollbar-thumb { background: rgba(15,23,42,0.18); border-radius: 8px; }
+  .status-cards::-webkit-scrollbar-track { background: transparent; }
+  .status-cards { scrollbar-width: thin; scrollbar-color: rgba(15,23,42,0.18) transparent; }
+
+  /* Applicant mini-card grid and card styles */
+  .two-col { display:flex; gap:12px; align-items:flex-start; overflow: hidden;}
+  /* make main column ~67% and recent applicants column 33% */
+  .two-col .col-flex { flex: 0 0 18%; max-width: 40%; box-sizing: border-box; }
+  .two-col .recent-col { flex: 0 0 81%; max-width:90%; box-sizing: border-box; padding-left: 8px; overflow: hidden; }
+  /* Ensure recent-list never creates a horizontal scroll; let the internal grid adapt */
+  .recent-list { overflow-x: hidden; overflow-y: auto; }
+  .recent-list ul { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; list-style:none; padding:0; margin:0; width:100%; box-sizing:border-box; }
+  .list-item-compact, .recent-list .list-item-compact { display:flex; align-items:center; justify-content:space-between; padding:8px; border-radius:8px; transition: transform .12s ease, box-shadow .12s ease; box-shadow: 0 1px 0 rgba(0,0,0,0.02); width:100%; box-sizing:border-box; background: transparent; }
+  /* Make recent applicant card borders black for stronger separation */
+  .recent-list .list-item-compact { border: 1px solid rgba(0, 0, 0, 0.10); background: #fff; }
+  .list-item-compact:hover { transform: translateY(-6px); box-shadow: 0 8px 20px rgba(0,0,0,0.08); cursor:pointer; }
+  .list-item-compact .row-ellipsis { max-width: 70%; }
+  .list-item-compact .muted-right { text-align:right; font-size:13px; }
+  /* small status label inside applicant card */
+  .app-status-pill { font-size:12px; padding:4px 6px; border-radius:999px; opacity:0.95; }
+  /* Recent applicants typography adjustments: smaller text, black color for legibility */
+  .recent-list { color: #000; font-size: 90%; }
+  /* Ensure list items stretch to fill their grid cell and wrap content as needed */
+  .recent-list ul li { width:100%; box-sizing:border-box; }
+  .recent-list .row { gap:6px; }
+  .recent-list .small-muted { color: #6b7280; }
 </style>
 
 <?php
@@ -328,6 +367,10 @@ try {
     <!-- Positions Card -->
     <div class="table-card">
       <div class="hdr"><h3>Positions Summary</h3>
+      <div id="positionsTotalCard" class="status-card clickable positions-total" data-action="positions-total">
+            <div class="label">Total Positions</div>
+            <div class="value val-danger" id="positionsTotal"><?= (int)$totalPositions ?></div>
+          </div>
         <div class="actions">
           <div class="action-group">
             <button type="button" class="timeframe-btn" data-target="positions" data-range="today" title="Today">Today</button>
@@ -348,12 +391,8 @@ try {
         </div>
       </div>
       <div class="inner">
-        <div class="summary-row" style="display:flex;align-items:center;gap:8px;">
-          <div id="positionsTotalCard" class="status-card clickable" data-action="positions-total">
-            <div class="label">Total Positions</div>
-            <div class="value val-danger" id="positionsTotal"><?= (int)$totalPositions ?></div>
-          </div>
-        </div>
+        <div class="summary-row" style="display:flex;align-items:flex-start;gap:16px;">
+          <div class="positions-details-grid">
         <?php
           // Fetch all configured (active) position statuses. Counts will be computed client-side
           // so they can respect the selected timeframe (today/week/month).
@@ -369,19 +408,31 @@ try {
           } catch (Throwable $_) { /* ignore */ }
         ?>
 
-        <div class="small-muted">Positions by Status</div>
-        <div id="statusCounters" class="status-cards" aria-live="polite"></div>
+        <div class="positions-group">
+          <div class="small-muted">Positions by Status</div>
+          <div id="statusCounters" class="status-cards" aria-live="polite"></div>
+        </div>
         <!-- Department and Team counters (replaces recent positions list). Rendered client-side so timeframe filters apply immediately. -->
-        <div class="small-muted">Positions by Department</div>
-        <div id="deptCounters" class="status-cards" aria-live="polite"></div>
-        <div class="small-muted">Positions by Team</div>
-        <div id="teamCounters" class="status-cards" aria-live="polite"></div>
+        <div class="positions-group">
+          <div class="small-muted">Positions by Department</div>
+          <div id="deptCounters" class="status-cards" aria-live="polite"></div>
+        </div>
+        <div class="positions-group">
+          <div class="small-muted">Positions by Team</div>
+          <div id="teamCounters" class="status-cards" aria-live="polite"></div>
+        </div>
+          </div><!-- .positions-details-grid -->
+        </div><!-- .summary-row -->
       </div>
     </div>
 
     <!-- Applicants Card (split left/right inside same card) -->
     <div class="table-card">
       <div class="hdr"><h3>Applicants Summary</h3>
+      <div id="applicantsTotalCard" class="status-card clickable positions-total" data-action="applicants-total">
+              <div class="label">Total Applicants</div>
+              <div class="value val-danger" id="applicantsTotalSummary"><?= (int)$totalApplicants ?></div>
+            </div>
         <div class="actions">
           <div class="action-group">
             <button type="button" class="timeframe-btn" data-target="applicants" data-range="today" title="Today">Today</button>
@@ -403,25 +454,29 @@ try {
       </div>
       <div class="inner full-height">
         <div class="card-main">
-          <div class="summary-row"><div>Total Applicants</div><div id="applicantsTotalSummary" class="value"><?= (int)$totalApplicants ?></div></div>
+          <div class="summary-row" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+            
+          </div>
           <div class="two-col">
           <div class="col-flex">
+            <div class="small-muted">Applicants by Status</div>
             <div class="status-stack">
-              <div class="status-card"><div class="label">Screening Pending</div><div class="value val-primary"><span id="status-screening"><?= (int)$screeningPending ?></span></div></div>
-              <div class="status-card"><div class="label">Shortlisted</div><div class="value val-purple"><span id="status-shortlisted"><?= (int)$shortlisted ?></span></div></div>
-              <div class="status-card"><div class="label">HR Interviews</div><div class="value val-indigo"><span id="status-hr"><?= (int)$hrInterviews ?></span></div></div>
-              <div class="status-card"><div class="label">Manager Interviews</div><div class="value val-teal"><span id="status-manager"><?= (int)$managerInterviews ?></span></div></div>
-              <div class="status-card"><div class="label">Rejected</div><div class="value val-danger"><span id="status-rejected"><?= (int)$rejected ?></span></div></div>
-              <div class="status-card"><div class="label">Hired</div><div class="value val-success"><span id="status-hired"><?= (int)$hired ?></span></div></div>
+              
+              <div class="status-card clickable" data-app-status="screening-pending"><div class="label">Screening Pending</div><div class="value val-primary"><span id="status-screening"><?= (int)$screeningPending ?></span></div></div>
+              <div class="status-card clickable" data-app-status="shortlisted"><div class="label">Shortlisted</div><div class="value val-purple"><span id="status-shortlisted"><?= (int)$shortlisted ?></span></div></div>
+              <div class="status-card clickable" data-app-status="hr-interviews"><div class="label">HR Interviews</div><div class="value val-indigo"><span id="status-hr"><?= (int)$hrInterviews ?></span></div></div>
+              <div class="status-card clickable" data-app-status="manager-interviews"><div class="label">Manager Interviews</div><div class="value val-teal"><span id="status-manager"><?= (int)$managerInterviews ?></span></div></div>
+              <div class="status-card clickable" data-app-status="rejected"><div class="label">Rejected</div><div class="value val-danger"><span id="status-rejected"><?= (int)$rejected ?></span></div></div>
+              <div class="status-card clickable" data-app-status="hired"><div class="label">Hired</div><div class="value val-success"><span id="status-hired"><?= (int)$hired ?></span></div></div>
             </div>
           </div>
-          <div style="flex:1 1 0; min-height:0; display:flex; flex-direction:column;">
+          <div class="recent-col" style="min-height:0; display:flex; flex-direction:column;">
             <div class="small-muted">Recent Applicants <span id="recentApplicantsCount" class="small-muted">(<?php echo min(12, count($applicants)); ?>)</span></div>
             <div id="recentApplicantsList" class="recent-list">
               <?php if (!empty($applicants)): ?>
                     <ul class="recent-grid-single">
                       <?php foreach (array_slice($applicants, 0, 12) as $ap): ?>
-                        <li class="row">
+                        <li class="row list-item-compact">
                           <div class="row-ellipsis"><strong class="name-strong"><?= htmlspecialchars($ap['full_name'] ?? ('Applicant #'.($ap['applicant_id']??''))) ?></strong><div class="small-muted">Status: <?= htmlspecialchars($ap['status_name'] ?? '—') ?></div></div>
                           <div class="muted-right"><?= htmlspecialchars($ap['created_at'] ?? '') ?> <div class="small-muted"><?= htmlspecialchars(ago_days($ap['created_at'] ?? '')) ?> ago</div></div>
                         </li>
@@ -574,6 +629,18 @@ const DASH_INTERVIEW_COUNTS = <?php echo json_encode($interviewCounts, JSON_HEX_
 const DASH_ACTIVE_DEPARTMENTS = <?php echo json_encode(array_keys($activeDepartments), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?>;
 const DASH_ACTIVE_TEAMS = <?php echo json_encode(array_keys($activeTeams), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?>;
 const DASH_STATUSES = <?php echo json_encode(array_values($positionStatuses), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?>;
+<?php
+// Fetch applicant statuses (including color) so dashboard can style applicant cards
+$applicantStatuses = [];
+try {
+  $q = "SELECT status_id, status_name, status_color FROM applicants_status WHERE COALESCE(active,1) != 0 ORDER BY status_id ASC";
+  if ($rs = $conn->query($q)) {
+    while ($r = $rs->fetch_assoc()) $applicantStatuses[] = $r;
+    $rs->free();
+  }
+} catch (Throwable $_) { }
+?>
+const DASH_APPLICANT_STATUSES = <?php echo json_encode($applicantStatuses, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?>;
 
 function parseDate(val){ const t = val ? new Date(val) : null; return (t && !isNaN(t)) ? t : null; }
 function fmtWhen(val){ const d = parseDate(val); if (!d) return '—'; return d.toLocaleString(); }
@@ -673,16 +740,43 @@ function renderPositions(range){
   const dashContainer = document.querySelector('.dashboard-container');
     if (dashContainer) {
     dashContainer.addEventListener('click', function(ev){
+      // If a recent applicant tile was clicked, navigate to applicants.php and open modal
+      try {
+        const appl = ev.target.closest && ev.target.closest('.list-item-compact[data-applicant-id]');
+        if (appl) {
+          const aid = decodeURIComponent(appl.getAttribute('data-applicant-id') || '');
+          if (aid) {
+            const params = new URLSearchParams();
+            // preserve active applicants timeframe if available
+            const activeBtn = document.querySelector('.timeframe-btn[data-target="applicants"].active');
+            const range = activeBtn ? activeBtn.getAttribute('data-range') : 'today';
+            const today = new Date();
+            function fmt(d){ const y = d.getFullYear(); const m = String(d.getMonth()+1).padStart(2,'0'); const day = String(d.getDate()).padStart(2,'0'); return y+'-'+m+'-'+day; }
+            let start = new Date();
+            if (range === 'today') { start.setHours(0,0,0,0); }
+            else if (range === 'week') { start.setDate(start.getDate() - 7); start.setHours(0,0,0,0); }
+            else if (typeof range === 'string' && range.startsWith('months')) { const parts = range.split(/[-_:]/); const months = parseInt(parts[1],10) || 1; start.setMonth(start.getMonth() - months); start.setHours(0,0,0,0); }
+            else { start.setMonth(start.getMonth() - 1); start.setHours(0,0,0,0); }
+            params.set('f-date-from', fmt(start)); params.set('f-date-to', fmt(today));
+            params.set('openApplicant', aid);
+            window.location.href = 'applicants.php?' + params.toString();
+            return;
+          }
+        }
+      } catch(e) { /* ignore and continue to card handling */ }
+
       const card = ev.target.closest && ev.target.closest('.status-card.clickable');
       if (!card) return;
-      // determine which kind of card: status, department, team or an action like total
+      // determine which kind of card: positions (status-id), department, team or applicants status
       const statusId = card.getAttribute('data-status-id');
       const dept = card.getAttribute('data-department');
       const team = card.getAttribute('data-team');
       const action = card.getAttribute('data-action');
-      // determine currently active timeframe for positions
-      const activeBtn = document.querySelector('.timeframe-btn[data-target="positions"].active');
-      const range = activeBtn ? activeBtn.getAttribute('data-range') : 'today';
+      const appStatus = card.getAttribute('data-app-status');
+      // determine currently active timeframe for positions/applicants
+      const activeBtnPositions = document.querySelector('.timeframe-btn[data-target="positions"].active');
+      const activeBtnApplicants = document.querySelector('.timeframe-btn[data-target="applicants"].active');
+      const range = (action === 'positions-total' || statusId || dept || team) ? (activeBtnPositions ? activeBtnPositions.getAttribute('data-range') : 'today') : (activeBtnApplicants ? activeBtnApplicants.getAttribute('data-range') : 'today');
       // compute date range (YYYY-MM-DD)
       const today = new Date();
       function fmt(d){ const y = d.getFullYear(); const m = String(d.getMonth()+1).padStart(2,'0'); const day = String(d.getDate()).padStart(2,'0'); return y+'-'+m+'-'+day; }
@@ -696,28 +790,40 @@ function renderPositions(range){
         start.setHours(0,0,0,0);
       } else { start.setMonth(start.getMonth() - 1); start.setHours(0,0,0,0); }
       const params = new URLSearchParams();
-      // set created date range so view_positions pre-fills created filters
-      params.set('fCreatedFrom', fmt(start));
-      params.set('fCreatedTo', fmt(today));
+      // set created date range so target page can pre-fill created filters
+      params.set('f-date-from', fmt(start));
+      params.set('f-date-to', fmt(today));
 
-      if (action === 'positions-total') {
-        // only date filters required — navigate to positions list
-      } else {
-        if (statusId) {
-          params.set('fStatus', decodeURIComponent(statusId));
-        }
-        if (dept) {
-          // view_positions expects lowercase department values in fDept select
-          params.set('fDept', decodeURIComponent(dept).toLowerCase());
-        }
-        if (team) {
-          params.set('fTeam', decodeURIComponent(team).toLowerCase());
-        }
+      if (appStatus) {
+        // navigate to applicants page with status filter
+        params.set('f-status', decodeURIComponent(appStatus));
+        const url = 'applicants.php?' + params.toString();
+        window.location.href = url;
+        return;
       }
 
-      // navigate to view_positions with filters applied
-      const url = 'view_positions.php?' + params.toString();
-      window.location.href = url;
+      if (action === 'applicants-total') {
+        // navigate to applicants list with date filters only (total card)
+        const url = 'applicants.php?' + params.toString();
+        window.location.href = url;
+        return;
+      }
+
+      if (action === 'positions-total') {
+        // navigate to positions list with date filters only
+        const url = 'view_positions.php?' + params.toString();
+        window.location.href = url;
+        return;
+      }
+
+      // fallback: positions card handling
+      if (statusId || dept || team) {
+        if (statusId) params.set('fStatus', decodeURIComponent(statusId));
+        if (dept) params.set('fDept', decodeURIComponent(dept).toLowerCase());
+        if (team) params.set('fTeam', decodeURIComponent(team).toLowerCase());
+        const url = 'view_positions.php?' + params.toString();
+        window.location.href = url;
+      }
     });
   }
 
@@ -754,16 +860,51 @@ function renderApplicants(range){
   if (!rows.length) {
     listEl.innerHTML = '<div class="empty">No applicants for this range.</div>';
   } else {
+    // build a map for applicant status colors
+    const statusArr = Array.isArray(DASH_APPLICANT_STATUSES) ? DASH_APPLICANT_STATUSES : [];
+    const statusMap = {};
+    statusArr.forEach(s => { if (s && s.status_id !== undefined) statusMap[String(s.status_id)] = s; if (s && s.status_name) statusMap[String(s.status_name).toLowerCase()] = s; });
+
+    function getStatusColor(row){
+      try {
+        if (row.status_id && statusMap[String(row.status_id)] && statusMap[String(row.status_id)].status_color) return statusMap[String(row.status_id)].status_color;
+        const name = (row.status_name || '').toString().toLowerCase();
+        if (name && statusMap[name] && statusMap[name].status_color) return statusMap[name].status_color;
+      } catch(e){}
+      return '#ffffff';
+    }
+
+    function contrastColor(hex){
+      try{
+        if(!hex) return '#000000';
+        var h = hex.replace('#',''); if (h.length === 3) h = h.split('').map(c=>c+c).join('');
+        var r = parseInt(h.substring(0,2),16), g = parseInt(h.substring(2,4),16), b = parseInt(h.substring(4,6),16);
+        var lum = 0.2126*r + 0.7152*g + 0.0722*b; return lum > 150 ? '#000000' : '#ffffff';
+      } catch(e){ return '#000000'; }
+    }
+
     const items = rows.slice(0, 12).map(r=>{
-    const name = r.full_name || ('Applicant #' + (r.applicant_id||''));
-    const when = r.created_at ? new Date(r.created_at).toLocaleString() : '—';
-    const ago = r.created_at ? (new Date() - new Date(r.created_at) < 86400*1000 ? Math.max(1, Math.floor((new Date() - new Date(r.created_at))/60000)) + 'm' : (()=>{ const d = Math.floor((new Date() - new Date(r.created_at))/86400000); return d + 'd';})() ) : '';
-    return '<li class="list-item-compact">'
-           + '<div class="row-ellipsis"><strong class="name-strong">'+escapeHtml(name)+'</strong><div class="small-muted">Status: '+escapeHtml(r.status_name||'—')+'</div></div>'
-           + '<div class="muted-right">'+escapeHtml(when)+' <div class="small-muted small-muted-sm">'+escapeHtml(ago)+' ago</div></div>'
-           + '</li>';
-  }).join('');
-    listEl.innerHTML = '<ul style="list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(1,1fr);gap:8px;">'+items+'</ul>';
+      const id = r.applicant_id || '';
+      const name = r.full_name || ('Applicant #' + id);
+      const when = r.created_at ? new Date(r.created_at).toLocaleString() : '—';
+      const diff = r.created_at ? (new Date() - new Date(r.created_at)) : 0;
+      let ago = '';
+      if (diff) { if (diff < 86400*1000) ago = Math.max(1, Math.floor(diff/60000)) + 'm'; else ago = Math.floor(diff/86400000) + 'd'; }
+      const position = r.position_title || r.position || '—';
+      const team = r.team_name || '—';
+            const statusName = r.status_name || '—';
+            const statusColor = getStatusColor(r) || '#f3f4f6';
+            const statusText = contrastColor(statusColor) || '#111';
+      // Card content: ID, Name, Position, Team, Age, Status
+            return '<li class="list-item-compact" data-applicant-id="'+encodeURIComponent(id)+'">'
+              + '<div class="row-ellipsis"><strong class="name-strong">#'+escapeHtml(id)+' — '+escapeHtml(name)+'</strong>'
+              + '<div class="small-muted">'+escapeHtml(position)+' • '+escapeHtml(team)+'</div></div>'
+              + '<div class="muted-right">'+escapeHtml(when)+'<div class="small-muted small-muted-sm">'+escapeHtml(ago)+' ago</div>'
+              + '<div class="app-status-pill" style="background:'+escapeHtml(statusColor)+';color:'+escapeHtml(statusText)+';display:inline-block;margin-top:6px;padding:4px 6px;border-radius:999px;font-size:12px">'+escapeHtml(statusName)+'</div>'
+              + '</div>'
+              + '</li>';
+    }).join('');
+    listEl.innerHTML = '<ul style="list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">'+items+'</ul>';
   }
   // update displayed count (always update even when zero rows)
   const countEl = document.getElementById('recentApplicantsCount');
@@ -798,6 +939,28 @@ function renderApplicants(range){
     Object.keys(elMap).forEach(k=>{ if (elMap[k]) elMap[k].textContent = String(counts[k] || 0); });
 
     // Update progress bar segments (percent of filtered rows)
+    // Rebuild the applicants-by-status mini-cards to only show counts > 0
+    try {
+      const statusStack = document.querySelector('.status-stack');
+      if (statusStack) {
+        const defs = [
+          { key: 'screen', label: 'Screening Pending', data: 'screening-pending', cls: 'val-primary' },
+          { key: 'shortlist', label: 'Shortlisted', data: 'shortlisted', cls: 'val-purple' },
+          { key: 'hr', label: 'HR Interviews', data: 'hr-interviews', cls: 'val-indigo' },
+          { key: 'mgr', label: 'Manager Interviews', data: 'manager-interviews', cls: 'val-teal' },
+          { key: 'rejected', label: 'Rejected', data: 'rejected', cls: 'val-danger' },
+          { key: 'hired', label: 'Hired', data: 'hired', cls: 'val-success' }
+        ];
+        const cards = defs.reduce((acc,d)=>{
+          const v = counts[d.key] || 0;
+          if (v > 0) {
+            acc.push('<div class="status-card clickable" data-app-status="'+encodeURIComponent(d.data)+'"><div class="label">'+escapeHtml(d.label)+'</div><div class="value '+d.cls+'">'+String(v)+'</div></div>');
+          }
+          return acc;
+        }, []);
+        statusStack.innerHTML = cards.length ? cards.join('') : '<div class="empty">No applicants for this range.</div>';
+      }
+    } catch(e){ console.warn('status-stack rebuild failed', e); }
     const total = rows.length;
     const segMap = {
       screen: document.getElementById('progress-screen'),
@@ -961,6 +1124,41 @@ document.getElementById('interviewTicketsBody')?.addEventListener('click', funct
   const row = DASH_INTERVIEWS.find(x=>String(x.id) === String(id)); if (row && row.applicant_id) window.location.href = 'get_applicant.php?applicant_id=' + encodeURIComponent(row.applicant_id); else window.location.href = 'get_applicant.php';
 });
 
-// Initial render: default to Today
-renderPositions('today'); renderApplicants('today'); renderInterviews('today');
+// Initial render: determine applicants range from URL (supports ?appRange=today|week|months-N)
+(function(){
+  var defPosRange = 'today';
+  var defIntRange = 'today';
+  var appRange = 'today';
+  try{
+    const params = new URLSearchParams(window.location.search || '');
+    if (params.has('appRange')) appRange = params.get('appRange') || 'today';
+    else if (params.has('range')) {
+      // allow a combined range param like range=applicants:week
+      const r = params.get('range') || '';
+      if (r.indexOf('applicants:') === 0) appRange = r.split(':',2)[1] || 'today';
+    }
+  }catch(e){ /* ignore */ }
+
+  // set active state for applicants timeframe buttons
+  try {
+    document.querySelectorAll('.timeframe-btn[data-target="applicants"]').forEach(b=>b.classList.remove('active'));
+    let btn = document.querySelector('.timeframe-btn[data-target="applicants"][data-range="'+appRange+'"]');
+    if (!btn && appRange && appRange.indexOf('months-') === 0) {
+      // ensure applicants month button reflects selected months (e.g. months-1)
+      btn = document.getElementById('applicantsMonthBtn');
+      const parts = appRange.split('-');
+      const months = parseInt(parts[1],10) || 1;
+      if (btn) {
+        btn.setAttribute('data-range', appRange);
+        btn.innerHTML = 'Last ' + months + (months>1? ' months':' month') + ' <span class="caret">▾</span>';
+      }
+    }
+    if (btn) btn.classList.add('active');
+  } catch(e) {}
+
+  // initial renders (positions/interviews default to today)
+  try { renderPositions(defPosRange); } catch(e) { renderPositions('today'); }
+  try { renderApplicants(appRange); } catch(e) { renderApplicants('today'); }
+  try { renderInterviews(defIntRange); } catch(e) { renderInterviews('today'); }
+})();
 </script>

@@ -1,5 +1,12 @@
 <?php
-session_start();
+// Guarded session_start to avoid "session already active" notice
+if (function_exists('session_status')) {
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        session_start();
+    }
+} else {
+    @session_start();
+}
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/access.php';

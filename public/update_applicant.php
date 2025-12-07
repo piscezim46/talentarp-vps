@@ -1,6 +1,13 @@
 <?php
 // public/update_applicant.php
-session_start();
+// start session only if not already active
+if (function_exists('session_status')) {
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        session_start();
+    }
+} else {
+    @session_start();
+}
 require_once __DIR__ . '/../includes/db.php';
 header('Content-Type: application/json; charset=utf-8');
 
@@ -30,7 +37,8 @@ if ($applicant_id <= 0) { echo json_encode(['ok'=>false,'error'=>'Missing applic
 
 // fetch current row so we only update changed fields (prevents unnecessary trigger actions)
 $cur = null;
-$q = $conn->prepare("SELECT * FROM applicants WHERE applicant_id = ? LIMIT 1");
+$selSql = "SELECT a.* FROM applicants a LEFT JOIN positions p ON a.position_id = p.id WHERE a.applicant_id = ? LIMIT 1";
+$q = $conn->prepare($selSql);
 if ($q) {
     $q->bind_param('i', $applicant_id);
     $q->execute();
@@ -219,7 +227,9 @@ if ($status_update !== null) {
 
 if (empty($sets)) {
     // nothing changed — return current applicant row so client can update UI without re-running triggers
-    $r = $conn->prepare("SELECT a.*, COALESCE(s.status_name,'') AS status_name FROM applicants a LEFT JOIN applicants_status s ON a.status_id = s.status_id WHERE a.applicant_id = ? LIMIT 1");
+    $rSql = "SELECT a.*, COALESCE(s.status_name,'') AS status_name FROM applicants a LEFT JOIN applicants_status s ON a.status_id = s.status_id LEFT JOIN positions p ON a.position_id = p.id WHERE a.applicant_id = ?";
+    $rSql .= ' LIMIT 1';
+    $r = $conn->prepare($rSql);
     if ($r) {
         $r->bind_param('i', $applicant_id);
         $r->execute();
@@ -240,7 +250,7 @@ if (!$stmt) {
     echo json_encode(['ok'=>false,'error'=>'Prepare failed: '.$err, 'db_message' => $err]);
     exit;
 }
-// bind params
+// bind params: append applicant id then department param if present
 $types .= 'i';
 $vals[] = $applicant_id;
 // mysqli bind_param requires references
@@ -312,13 +322,34 @@ try {
     error_log('[update_applicant] history insert failed: ' . $e->getMessage());
 }
 
-// return the updated applicant row
-$r = $conn->prepare("SELECT a.*, COALESCE(s.status_name,'') AS status_name FROM applicants a LEFT JOIN applicants_status s ON a.status_id = s.status_id WHERE a.applicant_id = ? LIMIT 1");
+$rSql = "SELECT a.*, COALESCE(s.status_name,'') AS status_name, COALESCE(s.status_color,'') AS status_color FROM applicants a LEFT JOIN applicants_status s ON a.status_id = s.status_id LEFT JOIN positions p ON a.position_id = p.id WHERE a.applicant_id = ? LIMIT 1";
+$r = $conn->prepare($rSql);
 $r->bind_param('i', $applicant_id);
 $r->execute();
 $res = $r->get_result();
 $row = $res ? $res->fetch_assoc() : null;
 $r->close();
+
+// Compute a readable text color for the status badge based on returned status_color
+try {
+    if ($row && isset($row['status_color']) && $row['status_color'] !== '') {
+        $hex = ltrim($row['status_color'], '#');
+        if (strlen($hex) === 3) $hex = $hex[0].$hex[0].$hex[1].$hex[1].$hex[2].$hex[2];
+        if (strlen($hex) === 6) {
+            $rC = hexdec(substr($hex,0,2));
+            $gC = hexdec(substr($hex,2,2));
+            $bC = hexdec(substr($hex,4,2));
+            $luma = (0.299*$rC + 0.587*$gC + 0.114*$bC);
+            $row['status_text_color'] = ($luma > 186) ? '#111111' : '#ffffff';
+        } else {
+            $row['status_text_color'] = '#ffffff';
+        }
+    } else {
+        $row['status_text_color'] = '#ffffff';
+    }
+} catch (Throwable $_) {
+    $row['status_text_color'] = '#ffffff';
+}
 
 // if a trigger prevented the update, make that explicit to the client
 $resp = [

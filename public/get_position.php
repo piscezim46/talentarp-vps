@@ -1,7 +1,16 @@
 <?php
 require_once __DIR__ . '/../includes/db.php';
 header('Content-Type: text/html; charset=utf-8');
-session_start();
+// start session only if not already active to avoid PHP notice when this
+// fragment is loaded via AJAX inside pages that already started a session
+if (function_exists('session_status')) {
+  if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+  }
+} else {
+  // fallback for very old PHP: attempt to start session
+  @session_start();
+}
 
 $id = isset($_GET['id']) ? intval($_GET['id']) : 0;
 if (!$id) {
@@ -9,21 +18,17 @@ if (!$id) {
     exit;
 }
 
-$stmt = $conn->prepare("
-  SELECT p.*, COALESCE(s.status_name,'') AS status_name, COALESCE(s.status_color,'') AS status_color
-  FROM positions p
-  LEFT JOIN positions_status s ON p.status_id = s.status_id
-  WHERE p.id = ? LIMIT 1
-");
-if (!$stmt) {
-    echo '<div class="error">Prepare failed: ' . htmlspecialchars($conn->error) . '</div>';
-    exit;
-}
-$stmt->bind_param('i', $id);
-$stmt->execute();
-$res = $stmt->get_result();
-$pos = $res ? $res->fetch_assoc() : null;
-$stmt->close();
+$sql = "SELECT p.*, COALESCE(s.status_name,'') AS status_name, COALESCE(s.status_color,'') AS status_color FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id WHERE p.id = ? LIMIT 1";
+ $stmt = $conn->prepare($sql);
+ if (!$stmt) {
+   echo '<div class="error">Prepare failed: ' . htmlspecialchars($conn->error) . '</div>';
+   exit;
+ }
+ $stmt->bind_param('i', $id);
+ $stmt->execute();
+ $res = $stmt->get_result();
+ $pos = $res ? $res->fetch_assoc() : null;
+ $stmt->close();
 
 if (!$pos) {
     echo '<div class="error">Not found</div>';
@@ -76,10 +81,7 @@ if ($tstmt) {
     $tstmt->execute();
     $tres = $tstmt->get_result();
     while ($tr = $tres->fetch_assoc()) {
-      // prevent exposing a manual transition to 'Applicants Active'
-      if (isset($tr['status_name']) && strcasecmp(trim($tr['status_name']), 'Applicants Active') === 0) continue;
-      // only include transitions pointing to an active status (SQL already filters, but keep safe check)
-      if (isset($tr['status_active']) && intval($tr['status_active']) !== 1) continue;
+      // include all configured transitions (SQL filters by t.active and s.active)
       $transitions[] = $tr;
     }
     $tstmt->close();
@@ -429,37 +431,47 @@ ob_start();
           // Status action buttons (moved to the right beside other buttons)
           $btns = [];
           $currentId = (int)$pos['status_id'];
-          // prepare a small statement to fetch the color for a status id
-          $colorStmt = $conn->prepare("SELECT COALESCE(status_color,'') AS status_color FROM positions_status WHERE status_id = ? LIMIT 1");
-          foreach ($transitions as $tr) {
-            $to = (int)$tr['to_status_id'];
-            $name = $tr['status_name'] ?: '';
-            if ($to === 6) continue; // Active is automated (hidden)
-            $label = $name;
-            if (strcasecmp($name, 'Shortclose') === 0) $label = 'Short-Close';
-            if ($to === 1 && $currentId === 9) $label = 'Re-open'; // Rejected->Open shows Re-open
-            $btnColor = '';
-            if ($colorStmt) {
-              try {
-                $colorStmt->bind_param('i', $to);
-                $colorStmt->execute();
-                $cres = $colorStmt->get_result();
-                $crow = $cres ? $cres->fetch_assoc() : null;
-                if ($crow && !empty($crow['status_color'])) $btnColor = $crow['status_color'];
-                $colorStmt->free_result();
-              } catch (Throwable $e) { /* ignore */ }
-            }
-            if (!$btnColor) $btnColor = '#ffffff';
-            $txt = status_text_color_local($btnColor);
-            $style = 'style="background: ' . h($btnColor) . '; color: ' . h($txt) . '; border:1px solid rgba(0,0,0,0.06);"';
-            $btns[] = '<button type="button" class="pos-action-btn status-action-btn" data-to="'.$to.'" data-label="'.h($label).'" '. $style . '>' . h($label) . '</button>';
-          }
-          if ($colorStmt) $colorStmt->close();
-          if (count($btns)) {
-            echo implode('', $btns);
+          // only allow status action rendering for users who can approve
+          if (empty($canApprove)) {
+            echo '<span class="small-muted" style="padding:8px;">You do not have permission to change status</span>';
           } else {
-            // No available next statuses (either no transitions configured or targets are inactive)
-            echo '<span class="small-muted" style="padding:8px;">No further action is applicable due to flow setup</span>';
+            // prepare a small statement to fetch the color for a status id
+            $colorStmt = $conn->prepare("SELECT COALESCE(status_color,'') AS status_color FROM positions_status WHERE status_id = ? LIMIT 1");
+            foreach ($transitions as $tr) {
+              $to = (int)$tr['to_status_id'];
+              $name = $tr['status_name'] ?: '';
+              // Note: do not special-case status id 6 here; let transitions and update handler decide
+              $label = $name;
+              if (strcasecmp($name, 'Shortclose') === 0) $label = 'Short-Close';
+              if ($to === 1 && $currentId === 9) $label = 'Re-open'; // Rejected->Open shows Re-open
+              $btnColor = '';
+              if ($colorStmt) {
+                try {
+                  $colorStmt->bind_param('i', $to);
+                  $colorStmt->execute();
+                  $cres = $colorStmt->get_result();
+                  $crow = $cres ? $cres->fetch_assoc() : null;
+                  if ($crow && !empty($crow['status_color'])) $btnColor = $crow['status_color'];
+                  $colorStmt->free_result();
+                } catch (Throwable $e) { /* ignore */ }
+              }
+              if (!$btnColor) $btnColor = '#ffffff';
+              $txt = status_text_color_local($btnColor);
+              $style = 'style="background: ' . h($btnColor) . '; color: ' . h($txt) . '; border:1px solid rgba(0,0,0,0.06);"';
+              // initially disable the status action buttons for a short hold to avoid
+              // immediate re-click/race conditions when reopening the modal rapidly.
+              $btns[] = '<button type="button" class="pos-action-btn status-action-btn" data-to="'.$to.'" data-label="'.h($label).'" '. $style . ' disabled aria-disabled="true" data-init-hold="1">' . h($label) . '</button>';
+            }
+            if ($colorStmt) $colorStmt->close();
+            if (count($btns)) {
+              echo implode('', $btns);
+              // Add a small inline script to enable those buttons after a 2 second hold.
+              // Scope to the viewer content to avoid affecting other pages.
+              echo '<script>(function(){try{var container = document.getElementById("posViewerContent") || document; var btns = container.querySelectorAll("button.pos-action-btn.status-action-btn[data-init-hold=\'1\']"); if(!btns || btns.length===0) return; setTimeout(function(){ try{ btns.forEach(function(b){ b.disabled = false; b.removeAttribute("aria-disabled"); b.removeAttribute("data-init-hold"); }); }catch(e){} }, 2000);}catch(e){console && console.warn && console.warn("status-hold",e);} })();</script>';
+            } else {
+              // No available next statuses (either no transitions configured or targets are inactive)
+              echo '<span class="small-muted" style="padding:8px;">No further action is applicable due to flow setup</span>';
+            }
           }
         ?>
          <button id="posResetBtn" type="button" class="btn-orange pos-action-btn">Reset</button>

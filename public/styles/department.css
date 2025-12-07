@@ -66,7 +66,6 @@ h2.section-title {
   background: var(--panel);
   color: var(--text-main);
   border-radius: 8px;
-  padding: 10px;
   border: 1px solid var(--muted-1);
   box-shadow: none;
   border-left: 6px solid var(--accent);
@@ -78,12 +77,18 @@ h2.section-title {
   content: '';
   position: absolute;
   inset: 0;
+  padding-left: 10px;
+  padding-right: 10px;
+  padding-bottom: 10px;
   pointer-events: none;
   background-image: repeating-linear-gradient(135deg, rgba(0,0,0,0.01) 0 2px, transparent 2px 8px);
   mix-blend-mode: overlay;
   /* much lighter texture for a calmer white */
   opacity: 0.12;
   border-radius: 8px;
+}
+.users-table th {
+    padding-top: 15px;
 }
 
 .users-table { width:100%; margin-top:8px; table-layout:fixed; background: transparent; border-collapse: collapse; border-spacing: 0; }
@@ -139,7 +144,8 @@ h2.section-title {
   vertical-align: middle;
 }
 
-.inactive-badge { display:inline-block; padding:6px 10px; border-radius:12px; font-size:0.85em; color:var(--text-muted); background:#f3f4f6; font-weight:600; border:1px solid rgba(15,23,42,0.02); }
+.active-badge { color:var(--accent-foreground,#111); background:var(--accent); padding:4px 8px; border-radius:6px; font-weight:700; }
+.inactive-badge { background:#f3f4f6; color:var(--text-muted); padding:4px 8px; border-radius:6px; font-weight:700; }
 
 .team-list-item { padding:10px 0; border-bottom:1px solid rgba(15,23,42,0.02); }
 .team-manager-name { color: var(--accent); font-weight:600; }
@@ -179,6 +185,15 @@ h2.section-title {
 .team-row .team-name, .team-row .team-manager { flex:1; }
 
 .team-list { list-style:none; padding:0; margin:0; }
+
+/* Teams column: keep team rows left-aligned with manager beside the team name */
+.col-teams .team-list-item { display: block; text-align: left; padding: 10px 0; }
+.col-teams .team-list-item strong { margin-right: 8px; }
+
+/* Badges in other columns: use color-only indicators (no background), green for active, red for inactive */
+.active-badge { color: green; background: transparent; padding: 0; border-radius: 0; font-weight: 600; }
+.inactive-badge { color: #b33; background: transparent; padding: 0; border-radius: 0; font-weight: 600; }
+.users-table td .active-badge, .users-table td .inactive-badge { display: inline-block; margin: 0 auto; }
 
 /* Responsive niceties */
 @media (max-width:900px) {

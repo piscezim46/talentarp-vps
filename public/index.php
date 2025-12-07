@@ -19,6 +19,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $user = $result->fetch_assoc();
 
     if ($user && password_verify($password, $user['password'])) {
+      // If the user's password is older than 30 days, mark them for force reset.
+      try {
+        $pwdChanged = isset($user['password_changed_at']) ? strtotime($user['password_changed_at']) : null;
+        $expired = false;
+        if ($pwdChanged === null || $pwdChanged === false) {
+            // treat NULL as expired (optional)
+            $expired = true;
+        } else {
+            if ($pwdChanged < strtotime('-30 days')) $expired = true;
+        }
+        if ($expired) {
+            $uup = $conn->prepare('UPDATE users SET force_password_reset = 1 WHERE id = ?');
+            if ($uup) { $uidx = (int)$user['id']; $uup->bind_param('i', $uidx); $uup->execute(); $uup->close(); }
+            $user['force_password_reset'] = 1;
+        }
+      } catch (Throwable $_) { /* ignore expiry enforcement failure */ }
       // build session user and include access keys from roles tables when available
       // prefer role_id when present (newer schema); keep role name for backward compatibility
       $role_id = isset($user['role_id']) ? (int)$user['role_id'] : null;
@@ -31,6 +47,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'role_id' => $role_id,
         'force_password_reset' => !empty($user['force_password_reset']) ? 1 : 0
       ];
+
+      // Top-level session keys used by department access helpers
+      // Keep both `$_SESSION['user']['role']` and `$_SESSION['role']` in sync.
+      $_SESSION['role'] = $_SESSION['user']['role'] ?? '';
+      // Store department on login so filtering helpers can use it.
+      $dept = '';
+      if (isset($user['department'])) $dept = $user['department'];
+      if (!$dept && isset($user['department_name'])) $dept = $user['department_name'];
+      // If user has department_id (older schema), resolve department_name from departments table
+      if (!$dept && isset($user['department_id']) && !empty($user['department_id'])) {
+        try {
+          $dstmt = $conn->prepare("SELECT department_name FROM departments WHERE department_id = ? LIMIT 1");
+          if ($dstmt) {
+            $did = (int)$user['department_id'];
+            $dstmt->bind_param('i', $did);
+            $dstmt->execute();
+            $dres = $dstmt->get_result();
+            $drow = $dres ? $dres->fetch_assoc() : null;
+            if ($drow && isset($drow['department_name'])) $dept = $drow['department_name'];
+            $dstmt->close();
+          }
+        } catch (Throwable $_) { /* ignore */ }
+      }
+      $dept = (string)($dept ?? '');
+      $_SESSION['department'] = $dept;
+      $_SESSION['user']['department'] = $dept;
 
       // update last_login timestamp for this user (centralized helper)
       try {
@@ -93,21 +135,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt2->close();
           }
         }
+        // Ensure top-level session role mirrors updated user role for helpers
+        $_SESSION['role'] = $_SESSION['user']['role'] ?? '';
 
-        // as a fallback, admin gets all access (handle both role_name and role_id mapping)
-        $is_admin = ($role_name === 'admin');
-        if (!$is_admin && $role_id) {
+        // as a fallback, admin gets all access (handle role_name variants and role_id mapping)
+        $roleNorm = isset($role_name) ? strtolower(trim($role_name)) : '';
+        $adminNames = ['admin','master admin','master_admin','master-admin','masteradmin'];
+        $is_admin = in_array($roleNorm, $adminNames, true);
+        // also treat specific role_id as admin (legacy) — role_id 3 is Master Admin in your DB
+        if (!$is_admin && !empty($role_id)) {
           $rstmt = $conn->prepare("SELECT role_name FROM roles WHERE role_id = ? LIMIT 1");
           if ($rstmt) {
             $rstmt->bind_param('i', $role_id);
             $rstmt->execute();
             $rres = $rstmt->get_result()->fetch_assoc();
-            if ($rres && isset($rres['role_name']) && $rres['role_name'] === 'admin') $is_admin = true;
+            if ($rres && isset($rres['role_name']) && in_array(strtolower(trim($rres['role_name'])), $adminNames, true)) $is_admin = true;
             $rstmt->close();
           }
         }
 
-        if (empty($access_keys) && $is_admin) {
+        // If user is an admin (including Master Admin), grant all access rights unconditionally
+        if ($is_admin) {
+          $access_keys = [];
           $rk = $conn->query("SELECT access_key FROM access_rights");
           if ($rk) {
             while ($rr = $rk->fetch_assoc()) $access_keys[] = $rr['access_key'];
@@ -131,19 +180,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 ?>
 
+<?php $pageTitle = 'Login'; ?>
+
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Talent Acquisition RP | Login</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title><?= htmlspecialchars($pageTitle ?? 'App') ?></title>
     <?php $ver = @filemtime(__DIR__ . '/styles/login.css') ?: time(); ?>
     <link rel="stylesheet" href="styles/login.css?v=<?php echo $ver; ?>">
     <!-- Favicons for login page (ensure browsers pick up the white logo instead of default PHP icon) -->
-    <link rel="icon" type="image/webp" href="/public/assets/White-Bugatti-Logo.webp" sizes="64x64">
-    <link rel="icon" type="image/webp" href="/public/assets/White-Bugatti-Logo.webp" sizes="128x128">
-    <link rel="icon" type="image/png" href="/public/assets/White-Bugatti-Logo.png" sizes="64x64">
-    <link rel="icon" type="image/png" href="/public/assets/White-Bugatti-Logo.png" sizes="128x128">
+    <link rel="icon" type="image/png" href="bugatti-logo.php" sizes="64x64">
+    <link rel="icon" type="image/png" href="bugatti-logo.php" sizes="128x128">
+    <link rel="alternate icon" type="image/webp" href="assets/White-Bugatti-Logo.webp" sizes="64x64">
 </head>
 <body>
 
@@ -152,9 +202,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     <div class="login-left">
         <div class="login-logo-wrap">
-          <img src="assets/White-Bugatti-Logo.webp" alt="Company logo" class="login-logo" style="width:240px;height:auto;" onerror="this.style.display='none'" />
+          <img src="assets/White-Bugatti-Logo.webp" alt="Company logo" class="login-logo" style="width:150px;height:auto;" onerror="this.style.display='none'" />
         </div>
-        <div class="login-title">Test Talent Acquisition</div>
+        <div class="login-title">Talent Acquisition</div>
         <div class="login-subtitle">Recruitment Platform</div>
         <div class="login-quote">HELPING YOU HIRE WONDERFUL PEOPLE</div>
     </div>
@@ -291,7 +341,8 @@ document.addEventListener('DOMContentLoaded', function(){
     toast.setAttribute('role','status');
     toast.setAttribute('aria-live','polite');
 
-    toast.innerHTML = '\n+      <div class="center-notify__body">\n+        <div>\n+          <div class="center-notify__title">Password reset instructions</div>\n+          <div class="center-notify__msg">For security reasons, password resets must be handled by your administrator. Please contact the admin team at rp-support@rp.com to request a password reset. They will verify your identity and assist you promptly.</div>\n+        </div>\n+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">\n+          <button class="center-notify__close" aria-label="Close">\n+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">\n+              <path d="M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>\n+              <path d="M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>\n+            </svg>\n+          </button>\n+        </div>\n+      </div>\n+      <div class="center-notify__progress" style="--duration:10s;"></div>\n+    ';
+    // Minimal body: message and small hint. Remove large button to avoid increasing toast height.
+    toast.innerHTML = '\n      <div class="center-notify__body">\n        <div>\n          <div class="center-notify__title">Password reset instructions</div>\n          <div class="center-notify__msg">For security reasons, password resets must be handled by your administrator. Click this notification to email the admin at master@talentarp.com.</div>\n        </div>\n        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">\n          <div class="center-notify__hint" aria-hidden="true" style="font-size:12px;color:rgba(255,255,255,0.85)">Click to contact admin</div>\n        </div>\n      </div>\n      <div class="center-notify__progress" style="--duration:10s;"></div>\n    ';
 
     container.appendChild(toast);
 
@@ -307,15 +358,28 @@ document.addEventListener('DOMContentLoaded', function(){
       setTimeout(function(){ if (toast && toast.parentNode) toast.parentNode.removeChild(toast); }, 320);
     };
 
-    var closeBtn = toast.querySelector('.center-notify__close');
-    if (closeBtn) closeBtn.addEventListener('click', function(){ cleanup(); });
-
     // auto-dismiss after 10s
     var to = setTimeout(function(){ cleanup(); }, 10000);
 
     // clear timeout if user interacts with the toast
-    toast.addEventListener('mouseenter', function(){ clearTimeout(to); });
-    toast.addEventListener('mouseleave', function(){ to = setTimeout(function(){ cleanup(); }, 6000); });
+    toast.addEventListener('mouseenter', function(){ clearTimeout(to); toast.style.filter = 'brightness(0.98)'; });
+    toast.addEventListener('mouseleave', function(){ to = setTimeout(function(){ cleanup(); }, 6000); toast.style.filter = ''; });
+
+    // make the entire toast clickable and open mail client to contact admin
+    try {
+      toast.style.cursor = 'pointer';
+      toast.addEventListener('click', function(e){
+        // avoid interfering if user selected text inside toast
+        try { clearTimeout(to); } catch(_){}
+        var userEmail = document.getElementById('email') ? (document.getElementById('email').value || '') : '';
+        var subject = encodeURIComponent('Password reset request');
+        var body = encodeURIComponent('Please assist with a password reset for: ' + (userEmail || '[please provide user email]') + '\n\nThank you.');
+        // use window.location to trigger default mail client
+        window.location.href = 'mailto:master@talentarp.com?subject=' + subject + '&body=' + body;
+        // cleanup toast after launching mail client
+        setTimeout(function(){ cleanup(); }, 300);
+      });
+    } catch(err) { console.warn('failed to attach mailto handler', err); }
   });
 });
 </script>

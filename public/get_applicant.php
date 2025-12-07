@@ -1,18 +1,28 @@
 <?php
 require_once __DIR__ . '/../includes/db.php';
 header('Content-Type: text/html; charset=utf-8');
-session_start();
+// Start session only if not already active to avoid PHP notice when this
+// fragment is loaded via AJAX inside pages that already started a session
+if (function_exists('session_status')) {
+  if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+  }
+} else {
+  // fallback for older PHP versions
+  @session_start();
+}
 
 $id = isset($_GET['applicant_id']) ? intval($_GET['applicant_id']) : (isset($_GET['id']) ? intval($_GET['id']) : 0);
 if (!$id) { echo '<div class="error">Missing applicant_id</div>'; exit; }
 
-$stmt = $conn->prepare("SELECT a.*, COALESCE(s.status_name,'') AS status_name FROM applicants a LEFT JOIN applicants_status s ON a.status_id = s.status_id WHERE a.applicant_id = ? LIMIT 1");
-if (!$stmt) { echo '<div class="error">Prepare failed: '.htmlspecialchars($conn->error).'</div>'; exit; }
-$stmt->bind_param('i', $id);
-$stmt->execute();
-$res = $stmt->get_result();
-$app = $res ? $res->fetch_assoc() : null;
-$stmt->close();
+$sql = "SELECT a.*, COALESCE(s.status_name,'') AS status_name FROM applicants a LEFT JOIN applicants_status s ON a.status_id = s.status_id LEFT JOIN positions p ON a.position_id = p.id WHERE a.applicant_id = ? LIMIT 1";
+ $stmt = $conn->prepare($sql);
+ if (!$stmt) { echo '<div class="error">Prepare failed: '.htmlspecialchars($conn->error).'</div>'; exit; }
+ $stmt->bind_param('i', $id);
+ $stmt->execute();
+ $res = $stmt->get_result();
+ $app = $res ? $res->fetch_assoc() : null;
+ $stmt->close();
 
 if (!$app) { echo '<div class="error">Applicant not found</div>'; exit; }
 
@@ -183,7 +193,11 @@ ob_start();
     .app-right .resume-wrap { background:#0b0b0b; border:1px solid rgba(255,255,255,0.03); border-radius:10px; padding:8px; box-shadow:none; }
 
     /* interactive elevation for tickets on hover (white-based glow) */
-    .app-ticket:hover { transform: translateY(-6px); box-shadow: 0 12px 34px var(--accent-shadow-strong); }
+     .app-ticket:hover { transform: translateY(-6px); box-shadow: 0 12px 34px var(--accent-shadow-strong); }
+     /* When the applicant ticket is rendered inside a modal viewer, disable
+       the hover elevation/transform so the modal content doesn't jump when
+       the mouse moves outside the ticket area. */
+     .modal-card .app-ticket:hover, .modal-overlay .modal-card .app-ticket:hover { transform: none !important; box-shadow: none !important; }
     .resume-toolbar { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; }
     .resume-toolbar .label { color:#cbd5e1; font-weight:700; }
     .resume-frame { width:100%; height:72vh; border:0; border-radius:6px; background:#ffffff; }
@@ -584,7 +598,7 @@ ob_start();
         <summary style="cursor:pointer;font-weight:700;display:flex;align-items:center;justify-content:space-between;gap:12px;">
           <span>Interview Logs</span>
           <div style="display:flex;gap:8px;align-items:center;">
-            <button id="btnScheduleInterview" class="btn-orange" type="button">Schedule Interview</button>
+            <button id="btnScheduleInterview" class="btn" type="button">Schedule Interview</button>
           </div>
         </summary>
 
@@ -645,7 +659,7 @@ ob_start();
               </div>
 
               <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
-                <button id="iv_sched_save" type="button" class="btn-orange">Save</button>
+                <button id="iv_sched_save" type="button" class="btn">Save</button>
               </div>
           </div>
         </div>
@@ -671,10 +685,13 @@ ob_start();
               </select>
               <input id="iv_view_location" type="text" placeholder="Location" style="padding:8px;border-radius:8px;background:#0f1720;color:#fff;border:1px solid rgba(255,255,255,0.04);min-width:200px;" />
             </div>
-            <div style="margin-top:10px;"><textarea id="iv_view_comments" rows="4" style="width:100%;padding:10px;border-radius:8px;background:#0f1720;color:#fff;border:1px solid rgba(255,255,255,0.04);"></textarea></div>
-            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
-              <button id="iv_view_cancel_btn" type="button" class="btn-ghost">Cancelled</button>
-              <button id="iv_view_complete_btn" type="button" class="btn-orange">Completed</button>
+            <div style="margin-top:10px;">
+              <label for="iv_view_comments" style="color:#9aa4b2;font-size:13px;margin-bottom:6px;display:block;">Comments</label>
+              <textarea id="iv_view_comments" rows="4" style="width:100%;padding:10px;border-radius:8px;background:#0f1720;color:#fff;border:1px solid rgba(255,255,255,0.04);"></textarea>
+            </div>
+            <div id="iv_view_actions" style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+              <button id="iv_view_cancel_btn" type="button" class="btn-ghost" style="display:none;">Cancelled</button>
+              <button id="iv_view_complete_btn" type="button" class="btn-orange" style="display:none;">Completed</button>
             </div>
           </div>
         </div>
@@ -826,8 +843,18 @@ ob_start();
     }catch(e){}
   }
 
-  pEdit && pEdit.addEventListener('click', function(ev){ try{ if (!isScreeningMode()) { ev && ev.preventDefault && ev.preventDefault(); notifyScreeningRequired(); return; } }catch(e){} profileSnapshot = getProfilePayload(); setProfileEditable(true); pEdit.style.display='none'; pSave.style.display='inline-block'; pCancel.style.display='inline-block'; __applicantUnsaved = true; addUnsavedCloseGuard(); });
-  pCancel && pCancel.addEventListener('click', function(){ if (profileSnapshot) { profileFields.forEach(id=>{ const el=document.getElementById(id); if (!el) return; el.value = profileSnapshot[id.replace(/^ap_/,'')] || ''; }); } setProfileEditable(false); pEdit.style.display='inline-block'; pSave.style.display='none'; pCancel.style.display='none'; __applicantUnsaved = false; removeUnsavedCloseGuard(); });
+  // Disable/enable status action buttons and Schedule Interview while editing
+  function updateActionButtonsState(){ try{
+      const disable = !!__applicantUnsaved;
+      const statusBtns = document.querySelectorAll('.status-action-btn, .status-action');
+      statusBtns.forEach(b=>{ try{ b.disabled = disable; b.setAttribute('aria-disabled', String(disable)); b.style.opacity = disable ? '0.45' : ''; b.style.pointerEvents = disable ? 'none' : ''; b.title = disable ? 'Disabled while editing' : (b.title || ''); }catch(e){} });
+      const sched = document.getElementById('btnScheduleInterview');
+      if (sched) { try{ sched.disabled = disable; sched.setAttribute('aria-disabled', String(disable)); sched.style.opacity = disable ? '0.45' : ''; sched.title = disable ? 'Disabled while editing' : (sched.title || ''); }catch(e){} }
+    }catch(e){}
+  }
+
+  pEdit && pEdit.addEventListener('click', function(ev){ try{ if (!isScreeningMode()) { ev && ev.preventDefault && ev.preventDefault(); notifyScreeningRequired(); return; } }catch(e){} profileSnapshot = getProfilePayload(); setProfileEditable(true); pEdit.style.display='none'; pSave.style.display='inline-block'; pCancel.style.display='inline-block'; __applicantUnsaved = true; addUnsavedCloseGuard(); try{ updateActionButtonsState(); }catch(e){} });
+  pCancel && pCancel.addEventListener('click', function(){ if (profileSnapshot) { profileFields.forEach(id=>{ const el=document.getElementById(id); if (!el) return; el.value = profileSnapshot[id.replace(/^ap_/,'')] || ''; }); } setProfileEditable(false); pEdit.style.display='inline-block'; pSave.style.display='none'; pCancel.style.display='none'; __applicantUnsaved = false; removeUnsavedCloseGuard(); try{ updateActionButtonsState(); }catch(e){} });
 
   pSave && pSave.addEventListener('click', async function(){
     const payload = getProfilePayload(); payload.applicant_id = applicantId;
@@ -846,7 +873,7 @@ ob_start();
 
       if (!json.ok) { if (json.neutral) { showInlineNotice(json.error || 'No changes'); return; } await ensureNotify(); Notify.push({ from:'Applicants', message: json.error || 'Save failed', color:'#dc2626' }); return; }
 
-      setProfileEditable(false); pEdit.style.display='inline-block'; pSave.style.display='none'; pCancel.style.display='none'; __applicantUnsaved = false; removeUnsavedCloseGuard();
+      setProfileEditable(false); pEdit.style.display='inline-block'; pSave.style.display='none'; pCancel.style.display='none'; __applicantUnsaved = false; removeUnsavedCloseGuard(); try{ updateActionButtonsState(); }catch(e){}
       try {
         const updated = json.applicant || {};
         if (updated.status_name) {
@@ -910,10 +937,10 @@ ob_start();
   try{ const hid = document.getElementById('ap_skills'); const init = (hid && hid.value) ? hid.value : (document.getElementById('ap_skills_tags') && document.getElementById('ap_skills_tags').dataset.initial) || ''; renderSkillsTagsFromValue(init); }catch(e){}
   let detailsSnapshot = null;
 
-  dEdit && dEdit.addEventListener('click', function(ev){ try{ if (!isScreeningMode()) { ev && ev.preventDefault && ev.preventDefault(); notifyScreeningRequired(); return; } }catch(e){} detailsSnapshot = getDetailsPayload(); setDetailsEditable(true); dEdit.style.display='none'; dSave.style.display='inline-block'; dCancel.style.display='inline-block'; __applicantUnsaved = true; addUnsavedCloseGuard(); });
+  dEdit && dEdit.addEventListener('click', function(ev){ try{ if (!isScreeningMode()) { ev && ev.preventDefault && ev.preventDefault(); notifyScreeningRequired(); return; } }catch(e){} detailsSnapshot = getDetailsPayload(); setDetailsEditable(true); dEdit.style.display='none'; dSave.style.display='inline-block'; dCancel.style.display='inline-block'; __applicantUnsaved = true; addUnsavedCloseGuard(); try{ updateActionButtonsState(); }catch(e){} });
   dCancel && dCancel.addEventListener('click', function(){ if (detailsSnapshot) { detailFields.forEach(id=>{ const el=document.getElementById(id); if (!el) return; el.value = detailsSnapshot[id.replace(/^ap_/,'')] || ''; }); // restore skills tags from the hidden value
     try{ const hv = document.getElementById('ap_skills') && document.getElementById('ap_skills').value; if (typeof hv !== 'undefined') renderSkillsTagsFromValue(hv); }catch(e){} }
-    setDetailsEditable(false); dEdit.style.display='inline-block'; dSave.style.display='none'; dCancel.style.display='none'; __applicantUnsaved = false; removeUnsavedCloseGuard(); });
+    setDetailsEditable(false); dEdit.style.display='inline-block'; dSave.style.display='none'; dCancel.style.display='none'; __applicantUnsaved = false; removeUnsavedCloseGuard(); try{ updateActionButtonsState(); }catch(e){} });
 
   dSave && dSave.addEventListener('click', async function(){
     const payload = getDetailsPayload(); payload.applicant_id = applicantId;
@@ -930,6 +957,7 @@ ob_start();
       if (!json.ok) { if (json.neutral) { showInlineNotice(json.error || 'No changes'); return; } await ensureNotify(); Notify.push({ from:'Applicants', message: json.error || 'Save failed', color:'#dc2626' }); return; }
 
       setDetailsEditable(false); dEdit.style.display='inline-block'; dSave.style.display='none'; dCancel.style.display='none'; __applicantUnsaved = false; removeUnsavedCloseGuard();
+      try{ updateActionButtonsState(); }catch(e){}
 
       try {
         const updated = json.applicant || {};
@@ -1010,13 +1038,16 @@ ob_start();
         try {
           // Prefer DB-defined color when provided by get_status_transitions; fall back to name-based palette
           const btnColor = (t.status_color && String(t.status_color).length) ? String(t.status_color) : applicantStatusColorForName(t.to_name || '');
-          const btnText = applicantStatusTextColor(btnColor);
+          // Force white text and bold font for consistency per request
           btn.style.background = btnColor;
-          btn.style.color = btnText;
+          btn.style.color = '#ffffff';
+          btn.style.fontWeight = '700';
+          try{ btn.setAttribute('data-color', btnColor); }catch(e){}
           btn.style.border = '1px solid rgba(0,0,0,0.18)';
         } catch(e) {
           btn.style.background = '#111827';
-          btn.style.color = '#fff';
+          btn.style.color = '#ffffff';
+          btn.style.fontWeight = '700';
           btn.style.border = '1px solid rgba(255,255,255,0.06)';
         }
         btn.style.padding = '10px 16px';
@@ -1114,10 +1145,39 @@ ob_start();
                   if (host) {
                     host.innerHTML = ftxt;
                     // Execute inline scripts from the refreshed fragment so handlers rebind
-                    Array.from(host.querySelectorAll('script')).forEach(s=>{
-                      const ns = document.createElement('script');
-                      if (s.src) { ns.src = s.src; ns.async = false; document.body.appendChild(ns); ns.onload = ()=>ns.remove(); }
-                      else { ns.text = s.textContent || s.innerText || ''; document.body.appendChild(ns); ns.remove(); }
+                    Array.from(host.querySelectorAll('script')).forEach(function(s){
+                      try{
+                        if (s.src) {
+                          (async function(){
+                            try {
+                              const r = await fetch(s.src, { credentials: 'same-origin' });
+                              if (r && r.ok) {
+                                const raw = await r.text();
+                                if (/\bimport\b|\bexport\b/.test(raw) || (s.type && s.type.toLowerCase && s.type.toLowerCase() === 'module')) {
+                                  const m = document.createElement('script'); m.type = 'module'; m.text = raw; document.body.appendChild(m); try{ m.remove(); }catch(e){}
+                                } else if (/\bawait\b/.test(raw)) {
+                                  const wrapper = '(async function(){\n' + raw + '\n})().catch(function(e){console.error(e)});';
+                                  const w = document.createElement('script'); w.text = wrapper; document.body.appendChild(w); try{ w.remove(); }catch(e){}
+                                } else {
+                                  const ext = document.createElement('script'); ext.type = 'module'; ext.src = s.src; ext.async = false; document.body.appendChild(ext); ext.onload = function(){ try{ ext.remove(); }catch(e){} };
+                                }
+                                return;
+                              }
+                            } catch (err) {}
+                            try { const fallback = document.createElement('script'); fallback.src = s.src; fallback.type = 'module'; fallback.async = false; document.body.appendChild(fallback); fallback.onload = function(){ try{ fallback.remove(); }catch(e){} }; } catch(e){}
+                          })();
+                          return;
+                        }
+                        const raw = s.textContent || s.innerText || '';
+                        if (/\bimport\b|\bexport\b/.test(raw)) {
+                          const m = document.createElement('script'); m.type = 'module'; m.text = raw; document.body.appendChild(m); try{ m.remove(); }catch(e){}
+                        } else if (/\bawait\b/.test(raw)) {
+                          const wrapper = '(async function(){\n' + raw + '\n})().catch(function(e){console.error(e)});';
+                          const w = document.createElement('script'); w.text = wrapper; document.body.appendChild(w); try{ w.remove(); }catch(e){}
+                        } else {
+                          const ns = document.createElement('script'); ns.type = 'module'; ns.text = raw; document.body.appendChild(ns); try{ ns.remove(); }catch(e){}
+                        }
+                      }catch(err){ console.warn('inject fragment script failed', err); }
                     });
                     try { window.dispatchEvent(new CustomEvent('applicant:updated', { detail: updated })); } catch(e){}
                   } else {
@@ -1166,12 +1226,14 @@ ob_start();
         });
         holder.appendChild(btn);
       }
+      try{ updateActionButtonsState(); }catch(e){}
     }catch(e){ console.warn('loadStatusActions failed', e); }
   }
   // load when fragment is ready
   setTimeout(loadStatusActions, 300);
   // ensure edit buttons initial enabled/disabled state
   try { updateEditButtonsState(); } catch(e) {}
+  try { updateActionButtonsState(); } catch(e) {}
 
 })();
 </script>
@@ -1386,7 +1448,7 @@ ob_start();
   });
 
   // Open viewer for a given interview object
-  function openViewer(it){
+  async function openViewer(it){
     if (!viewModal) return;
     viewTitle.textContent = 'Interview — ' + (it.interview_datetime ? formatWhen(it.interview_datetime) : ('ID ' + (it.id||'')));
     viewMeta.innerHTML = '<div style="font-weight:700;color:#fff;">' + (<?php echo json_encode(h($app['full_name'])); ?> || '') + '</div>' + (<?php echo json_encode(h($position_title ?: '')); ?> ? '<div style="color:#9aa4b2;font-size:13px;">Position: ' + <?php echo json_encode(h($position_title ?: '')); ?> + '</div>' : '');
@@ -1407,25 +1469,92 @@ ob_start();
     viewComments.value = it.comments || '';
     // attach dataset to modal for later use
     viewModal._currentInterview = it;
-    // show/hide action buttons for terminal statuses (Cancelled / Completed)
+    // Populate interview action buttons from server-provided transitions (preferred).
     try{
-      const st = (it.status_name || (statusMapById[it.status_id]||'')).toString().toLowerCase().trim();
-      // remove any existing no-actions message
-      const existingMsg = document.getElementById('iv_no_actions_msg'); if (existingMsg) existingMsg.remove();
-      if (st === 'cancelled' || st === 'completed'){
-        if (viewCompleteBtn) viewCompleteBtn.style.display = 'none';
-        if (viewCancelBtn) viewCancelBtn.style.display = 'none';
-        // show small helper message above buttons
-        try{
-          const msg = document.createElement('div'); msg.id = 'iv_no_actions_msg'; msg.style.color = '#9aa4b2'; msg.style.fontSize = '13px'; msg.style.marginTop = '8px'; msg.textContent = 'No further action applicable.';
-          const btnContainer = (viewCompleteBtn && viewCompleteBtn.parentElement) || (viewCancelBtn && viewCancelBtn.parentElement);
-          if (btnContainer && btnContainer.parentElement) btnContainer.parentElement.insertBefore(msg, btnContainer);
-        }catch(e){}
-      } else {
-        if (viewCompleteBtn) viewCompleteBtn.style.display = 'inline-block';
-        if (viewCancelBtn) viewCancelBtn.style.display = 'inline-block';
+      const actionsContainer = document.getElementById('iv_view_actions');
+      if (actionsContainer) {
+        // remove previous dynamic buttons
+        Array.from(actionsContainer.querySelectorAll('.iv-dyn-action')).forEach(n=>n.remove());
       }
-    }catch(e){}
+
+      // helper to render the fallback Completed/Cancelled buttons
+      const showFallbackButtons = function(){
+        try{
+          if (viewCompleteBtn) { viewCompleteBtn.style.display = 'inline-block'; viewCompleteBtn.style.padding = '8px'; viewCompleteBtn.style.borderRadius = '6px'; }
+          if (viewCancelBtn) { viewCancelBtn.style.display = 'inline-block'; viewCancelBtn.style.padding = '8px'; viewCancelBtn.style.borderRadius = '6px'; }
+        }catch(e){}
+      };
+
+      // Try to fetch transitions for this interview status (prefer id). If none, fallback to showing the default buttons.
+      let fromId = it.status_id ? Number(it.status_id) : 0;
+      const tryFroms = (fromId === 0) ? [0,1] : [fromId];
+      let transitionsJson = null;
+      for (const f of tryFroms) {
+        try{
+          const resp = await fetch('get_status_transitions.php?from=' + encodeURIComponent(f) + '&type=interview', { credentials:'same-origin' });
+          const txt = await resp.text();
+          try { transitionsJson = JSON.parse(txt); } catch(e){ transitionsJson = null; }
+          if (transitionsJson && transitionsJson.ok && Array.isArray(transitionsJson.transitions) && transitionsJson.transitions.length) break;
+        } catch(e) { transitionsJson = null; }
+      }
+
+      if (!transitionsJson || !transitionsJson.ok || !Array.isArray(transitionsJson.transitions) || !transitionsJson.transitions.length) {
+        // Nothing returned — show the old fixed buttons for backward compatibility
+        // set colors on fallback buttons where possible
+        try{
+          const completedOpt = Array.from(ivStatusRef.options || []).find(o => ((o.textContent||o.innerText||'').toString().trim().toLowerCase() === 'completed'));
+          if (completedOpt && viewCompleteBtn) { const c = completedOpt.getAttribute('data-color') || '#10b981'; viewCompleteBtn.style.background = c; try{ viewCompleteBtn.style.setProperty('color','#ffffff','important'); }catch(e){ viewCompleteBtn.style.color='#ffffff'; } try{ viewCompleteBtn.style.setProperty('font-weight','700','important'); }catch(e){ viewCompleteBtn.style.fontWeight='700'; } }
+          const cancelledOpt = Array.from(ivStatusRef.options || []).find(o => ((o.textContent||o.innerText||'').toString().trim().toLowerCase() === 'cancelled' || (o.textContent||o.innerText||'').toString().trim().toLowerCase() === 'canceled'));
+          if (cancelledOpt && viewCancelBtn) { const c2 = cancelledOpt.getAttribute('data-color') || '#ef4444'; viewCancelBtn.style.background = c2; try{ viewCancelBtn.style.setProperty('color','#ffffff','important'); }catch(e){ viewCancelBtn.style.color='#ffffff'; } try{ viewCancelBtn.style.setProperty('font-weight','700','important'); }catch(e){ viewCancelBtn.style.fontWeight='700'; } }
+        }catch(e){}
+        // if interview is terminal, hide both
+        try{
+          const st = (it.status_name || (statusMapById[it.status_id]||'')).toString().toLowerCase().trim();
+          if (st === 'cancelled' || st === 'completed'){
+            if (viewCompleteBtn) viewCompleteBtn.style.display = 'none';
+            if (viewCancelBtn) viewCancelBtn.style.display = 'none';
+            const existingMsg = document.getElementById('iv_no_actions_msg'); if (existingMsg) existingMsg.remove();
+            try{ const msg = document.createElement('div'); msg.id = 'iv_no_actions_msg'; msg.style.color = '#9aa4b2'; msg.style.fontSize = '13px'; msg.style.marginTop = '8px'; msg.textContent = 'No further action applicable.'; const btnContainer = (viewCompleteBtn && viewCompleteBtn.parentElement) || (viewCancelBtn && viewCancelBtn.parentElement); if (btnContainer && btnContainer.parentElement) btnContainer.parentElement.insertBefore(msg, btnContainer); }catch(e){}
+          } else {
+            showFallbackButtons();
+          }
+        }catch(e){}
+        return;
+      }
+
+      // we have transitions; render them as dynamic action buttons
+      const transitions = transitionsJson.transitions || [];
+      if (!transitions.length) { showFallbackButtons(); return; }
+      const holder = document.getElementById('iv_view_actions') || (viewCompleteBtn && viewCompleteBtn.parentElement) || document.body;
+      // hide fallback buttons when rendering dynamic ones
+      try{ if (viewCompleteBtn) viewCompleteBtn.style.display = 'none'; if (viewCancelBtn) viewCancelBtn.style.display = 'none'; }catch(e){}
+
+      for (const t of transitions) {
+        try{
+          const b = document.createElement('button'); b.type = 'button'; b.className = 'iv-dyn-action status-action-btn';
+          const btnColor = (t.status_color && String(t.status_color).length) ? String(t.status_color) : '#111827';
+          b.style.background = btnColor; try{ b.style.setProperty('color','#ffffff','important'); }catch(e){ b.style.color='#ffffff'; } try{ b.style.setProperty('font-weight','700','important'); }catch(e){ b.style.fontWeight='700'; }
+          b.style.padding = '8px'; b.style.borderRadius = '6px'; b.style.border = '1px solid rgba(0,0,0,0.12)'; b.style.cursor = 'pointer'; b.textContent = t.to_name || ('Status ' + String(t.to_id));
+          b.setAttribute('data-to-id', String(t.to_id));
+          // click handler: require comment for cancellation-like transitions
+          b.addEventListener('click', async function(){
+            const toId = parseInt(this.getAttribute('data-to-id'),10);
+            if (isNaN(toId)) return;
+            const toName = (t.to_name || '').toString().toLowerCase();
+            // if transition looks like cancellation/rejection, require comment
+            if (/cancel|reject/i.test(toName)) {
+              const comment = (viewComments && viewComments.value || '').trim();
+              if (!comment) { notify('Please provide a reason in the comments field before cancelling.', '#dc2626'); return; }
+              await updateInterviewStatus(it.id, toId, { result: viewResult.value || '', location: viewLocation.value || '', comments: comment });
+            } else {
+              await updateInterviewStatus(it.id, toId, { result: viewResult.value || '', location: viewLocation.value || '', comments: viewComments.value || '' });
+            }
+          });
+          holder.appendChild(b);
+        }catch(e){ console.warn('render transition failed', e); }
+      }
+
+    }catch(e){ console.warn('load interview actions failed', e); }
 
     showModal(viewModal);
   }
@@ -1483,10 +1612,13 @@ ob_start();
       }
       host.innerHTML = ftxt;
       // execute inlined scripts from the refreshed fragment so handlers rebind
-      Array.from(host.querySelectorAll('script')).forEach(s=>{
-        const ns = document.createElement('script');
-        if (s.src) { ns.src = s.src; ns.async = false; document.body.appendChild(ns); ns.onload = ()=>ns.remove(); }
-        else { ns.text = s.textContent || s.innerText || ''; document.body.appendChild(ns); ns.remove(); }
+      Array.from(host.querySelectorAll('script')).forEach(function(s){
+        try{
+          const ns = document.createElement('script');
+          if (s.type && s.type.toLowerCase && s.type.toLowerCase() === 'module') ns.type = 'module';
+          if (s.src) { ns.src = s.src; ns.async = false; document.body.appendChild(ns); ns.onload = function(){ try{ ns.remove(); }catch(e){} }; }
+          else { const raw = s.textContent || s.innerText || ''; ns.type = 'module'; ns.text = raw; document.body.appendChild(ns); try{ ns.remove(); }catch(e){} }
+        }catch(err){ console.warn('inject fragment script failed', err); }
       });
     }catch(e){ console.warn('refresh fragment failed', e); }
   }
@@ -1526,6 +1658,15 @@ ob_start();
                 header.style.justifyContent = 'space-between';
                 const closeBtn = ov.querySelector('.modal-card .modal-close-x');
                 if (closeBtn) header.appendChild(closeBtn);
+                // If opened from applicant, increase modal width for better readability
+                try {
+                  const modalCard = ov.querySelector('.modal-card');
+                  if (modalCard) {
+                    modalCard.style.width = '90%';
+                    modalCard.style.maxWidth = '1100px';
+                    modalCard.style.boxSizing = 'border-box';
+                  }
+                } catch(e) {}
               }
 
               // Disable status-change controls inside the loaded fragment
@@ -1563,19 +1704,47 @@ ob_start();
         ov.innerHTML = '<div class="modal-card"><div class="modal-header"><h3 id="posOnTopTitle" style="margin:0;">Position</h3><button type="button" class="modal-close-x" aria-label="Close">&times;</button></div><div id="posOnTopContent" style="width:100%;box-sizing:border-box;"></div></div>';
         document.body.appendChild(ov);
         ov.addEventListener('click', function(e){ if (e.target && e.target.closest && e.target.closest('.modal-close-x')) { ov.classList.remove('show'); ov.setAttribute('aria-hidden','true'); try{ ov.style.display='none'; }catch(e){} const c = document.getElementById('posOnTopContent'); if (c) c.innerHTML=''; } });
-        document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && ov.classList.contains('show')) { ov.classList.remove('show'); ov.setAttribute('aria-hidden','true'); try{ ov.style.display='none'; }catch(e){} const c = document.getElementById('posOnTopContent'); if (c) c.innerHTML=''; } });
+        document.addEventListener('keydown', function(e){
+          try {
+            if (e.key !== 'Escape') return;
+            // Only close if this modal is the topmost visible modal (last in document order)
+            if (!ov.classList.contains('show')) return;
+            const shown = Array.from(document.querySelectorAll('.modal-overlay.show'));
+            if (!shown.length) return;
+            const top = shown[shown.length - 1];
+            if (top !== ov) return; // not the topmost, ignore
+            ov.classList.remove('show'); ov.setAttribute('aria-hidden','true'); try{ ov.style.display='none'; }catch(e){};
+            const c = document.getElementById('posOnTopContent'); if (c) c.innerHTML='';
+          } catch(err) { console.warn('positionOnTop ESC handler failed', err); }
+        });
       }
       const content = ov.querySelector('#posOnTopContent');
       const title = ov.querySelector('#posOnTopTitle');
       title.textContent = 'Position #' + id;
       content.innerHTML = '<div style="padding:12px;color:#aaa;">Loading...</div>';
       ov.classList.add('show'); ov.setAttribute('aria-hidden','false'); ov.style.display='flex';
+      // enlarge fallback modal card for position display when opened from applicant
+      try {
+        const modalCard = ov.querySelector('.modal-card');
+        if (modalCard) {
+          modalCard.style.width = '92%';
+          modalCard.style.maxWidth = '1100px';
+          modalCard.style.boxSizing = 'border-box';
+        }
+      } catch(e) {}
 
       const res = await fetch('get_position.php?id=' + encodeURIComponent(id), { credentials:'same-origin' });
       const html = await res.text();
       content.innerHTML = html;
       // run inline scripts from the fragment so event binders attach
-      Array.from(content.querySelectorAll('script')).forEach(s=>{ const ns = document.createElement('script'); if (s.src) { ns.src = s.src; ns.async = false; document.body.appendChild(ns); ns.onload = ()=>ns.remove(); } else { ns.text = s.textContent || s.innerText || ''; document.body.appendChild(ns); ns.remove(); } });
+      Array.from(content.querySelectorAll('script')).forEach(function(s){
+        try{
+          const ns = document.createElement('script');
+          if (s.type && s.type.toLowerCase && s.type.toLowerCase() === 'module') ns.type = 'module';
+          if (s.src) { ns.src = s.src; ns.async = false; document.body.appendChild(ns); ns.onload = function(){ try{ ns.remove(); }catch(e){} }; }
+          else { const raw = s.textContent || s.innerText || ''; ns.type = 'module'; ns.text = raw; document.body.appendChild(ns); try{ ns.remove(); }catch(e){} }
+        }catch(err){ console.warn('inject fragment script failed', err); }
+      });
       // ensure applicants panel is closed for this flow
       try { const posApplicants = content.querySelector('#posApplicants'); if (posApplicants) posApplicants.open = false; } catch(e){}
       // move close X to the right and disable status-change buttons inside fallback modal

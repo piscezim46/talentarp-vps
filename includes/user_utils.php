@@ -31,4 +31,24 @@ function set_password_changed_at_now($conn, $userId) {
     return $ok;
 }
 
+/**
+ * Enforce password expiry across users.
+ * Marks `force_password_reset = 1` for users whose `password_changed_at` is older than $days
+ * or is NULL (if you want NULL treated as expired). Returns affected rows or false on error.
+ */
+function enforce_password_expiry($conn, $days = 30) {
+    if (empty($conn)) return false;
+    $d = (int)$days;
+    // Update users that are active and not already forced to reset.
+    $sql = "UPDATE users SET force_password_reset = 1 WHERE active = 1 AND force_password_reset = 0 AND (password_changed_at IS NULL OR password_changed_at < DATE_SUB(NOW(), INTERVAL ? DAY))";
+    $stmt = $conn->prepare($sql);
+    if (!$stmt) return false;
+    $stmt->bind_param('i', $d);
+    $ok = $stmt->execute();
+    if (!$ok) { $stmt->close(); return false; }
+    $affected = $stmt->affected_rows;
+    $stmt->close();
+    return $affected;
+}
+
 ?>

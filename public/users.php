@@ -1,7 +1,27 @@
 <?php
-$sessionStarted = session_status() === PHP_SESSION_ACTIVE;
-if (!$sessionStarted) session_start();
+// Ensure session is started (safe check)
+if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 require_once __DIR__ . '/../includes/db.php';
+if (file_exists(__DIR__ . '/../includes/user_utils.php')) require_once __DIR__ . '/../includes/user_utils.php';
+
+// Collect PHP warnings/notices so we can surface them as Notify toasts
+$page_errors = [];
+$prevErrorHandler = set_error_handler(function($errno, $errstr, $errfile, $errline) use (&$page_errors) {
+    // Build a concise message
+    $typeMap = [E_NOTICE=>'Notice', E_WARNING=>'Warning', E_USER_WARNING=>'Warning', E_USER_NOTICE=>'Notice'];
+    $t = $typeMap[$errno] ?? 'Error';
+    $page_errors[] = $t . ': ' . $errstr . ' in ' . $errfile . ' on line ' . $errline;
+    // prevent PHP internal handler from printing to output
+    return true;
+});
+register_shutdown_function(function() use (&$page_errors, $prevErrorHandler) {
+    $err = error_get_last();
+    if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        $page_errors[] = 'Fatal: ' . ($err['message'] ?? '') . ' in ' . ($err['file'] ?? '') . ' on line ' . ($err['line'] ?? '');
+    }
+    // restore previous handler
+    if ($prevErrorHandler) set_error_handler($prevErrorHandler);
+});
 
 // (JS closures accidentally inserted here were removed)
 if (!isset($_SESSION['user'])) {
@@ -11,12 +31,18 @@ if (!isset($_SESSION['user'])) {
 
 $user = $_SESSION['user'];
 // authorization: allow if user has users_view access or is admin role (backwards-compatible)
-$has_users_access = in_array('users_view', $_SESSION['user']['access_keys'] ?? []) || (isset($user['role']) && $user['role'] === 'admin');
+$roleNorm = isset($user['role']) ? strtolower(trim($user['role'])) : '';
+$has_users_access = in_array('users_view', $_SESSION['user']['access_keys'] ?? []) || in_array($roleNorm, ['admin','master admin','master_admin','master-admin','masteradmin'], true);
 if (!$has_users_access) {
     header("Location: index.php");
     exit;
 }
 $activePage = 'users';
+
+// Enforce password expiry for all users when admin opens Users page
+if (function_exists('enforce_password_expiry')) {
+    try { enforce_password_expiry($conn, 30); } catch (Throwable $_) { /* ignore failures */ }
+}
 
 // Fetch users with department/team and manager/director names — sort oldest first
 $users_q = "
@@ -73,9 +99,16 @@ if ($res = $conn->query($sql)) {
 $departments_json = json_encode($departments, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP);
 // fetch roles for dynamic role select (include department_id to allow filtering)
 $roles = [];
+// Fetch all roles (used for edit/filters) and separately fetch active roles for the Create User modal
 $roles_res = $conn->query("SELECT role_id, role_name, department_id FROM roles ORDER BY role_name");
 if ($roles_res) { while ($rr = $roles_res->fetch_assoc()) $roles[] = $rr; $roles_res->free(); }
 $roles_json = json_encode($roles, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP);
+// Active roles for selection when creating a new user
+$active_roles = [];
+$ar_res = $conn->query("SELECT role_id, role_name, department_id FROM roles WHERE COALESCE(active,1) = 1 ORDER BY role_name");
+if ($ar_res) { while ($r = $ar_res->fetch_assoc()) $active_roles[] = $r; $ar_res->free(); }
+$active_roles_json = json_encode($active_roles, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP);
+$pageTitle = 'Users';
 if (file_exists(__DIR__ . '/../includes/header.php')) include __DIR__ . '/../includes/header.php';
 if (file_exists(__DIR__ . '/../includes/navbar.php')) include __DIR__ . '/../includes/navbar.php';
 ?>
@@ -91,7 +124,6 @@ if (file_exists(__DIR__ . '/../includes/navbar.php')) include __DIR__ . '/../inc
     #u_send_invite { width:18px; height:18px; accent-color:#10b981; }
     #u_send_invite.invite-off { accent-color:#ef4444; }
 </style>
-<title>Users</title>
 <script>
 // Capture and surface JS errors on this page to help debugging (shows toast and logs to console)
 window.addEventListener('error', function(e){
@@ -324,10 +356,10 @@ window.addEventListener('unhandledrejection', function(e){
                 <input id="u_manager_display" type="text" disabled aria-disabled="true" value="Unassigned">
                 <input type="hidden" name="manager_name" id="u_manager_name" value="">
 
-                <!-- Role: disabled until a department is selected. Shows roles matching the department_id or global (no department) -->
+                <!-- Role: disabled until a department is selected. Shows active roles matching the department_id or global (no department) -->
                 <label for="u_role">Role</label>
                 <select id="u_role" name="role_id" required disabled>
-                    <?php foreach ($roles as $ro): ?>
+                    <?php foreach ($active_roles as $ro): ?>
                         <option value="<?= (int)$ro['role_id'] ?>" data-department-id="<?= empty($ro['department_id']) ? '' : (int)$ro['department_id'] ?>"><?= htmlspecialchars($ro['role_name']) ?></option>
                     <?php endforeach; ?>
                 </select>
@@ -335,14 +367,14 @@ window.addEventListener('unhandledrejection', function(e){
                 <label for="u_password">Password</label>
                 <input id="u_password" name="password" type="password" required>
 
-                <label for="u_send_invite" style="display:flex;align-items:center;gap:10px;margin-top:8px;">
-                    <span>Send invitation email</span>
-                    <input id="u_send_invite" name="send_invite" type="checkbox" checked aria-checked="true" />
+                <label for="u_send_invite" style="display:flex;align-items:center;gap:10px;margin-top:8px;" hidden>
+                    <span hidden>Send invitation email</span>
+                    <input id="u_send_invite" name="send_invite" type="checkbox" checked aria-checked="true" hidden />
                 </label>
 
                 <div class="modal-actions">
                     <button type="button" id="cancelCreate" class="btn">Cancel</button>
-                    <button type="submit" class="btn btn-orange">Create</button>
+                    <button type="submit" class="btn">Create</button>
                 </div>
             </form>
         </div>
@@ -379,7 +411,7 @@ function debounce(fn, wait) {
         timer = setTimeout(function() { timer = null; fn.apply(ctx, args); }, wait);
     };
 }
-<?php $is_admin = in_array('users_view', $_SESSION['user']['access_keys'] ?? []) || (isset($user) && isset($user['role']) && $user['role'] === 'admin'); ?>
+<?php $roleNorm = isset($user['role']) ? strtolower(trim($user['role'])) : ''; $is_admin = in_array('users_view', $_SESSION['user']['access_keys'] ?? []) || in_array($roleNorm, ['admin','master admin','master_admin','master-admin','masteradmin'], true); ?>
 const IS_ADMIN = <?= json_encode($is_admin) ?>;
 document.addEventListener('DOMContentLoaded', function(){
     const openBtn = document.getElementById('openCreateBtn');
@@ -829,8 +861,7 @@ function parseDateFromCell(text){ // try to parse YYYY-MM-DD or fallback
                     <!-- role select is placed after department/team/manager so department filters available roles -->
                     <label for="e_role">Role</label>
                     <select id="e_role" name="role_id" required disabled>
-                        <option value="">-- Select Role --</option>
-                        <?php foreach ($roles as $ro2): ?>
+                        <?php foreach ($active_roles as $ro2): ?>
                             <option value="<?= (int)$ro2['role_id'] ?>" data-department-id="<?= empty($ro2['department_id']) ? '' : (int)$ro2['department_id'] ?>"><?= htmlspecialchars($ro2['role_name']) ?></option>
                         <?php endforeach; ?>
                     </select>
@@ -840,7 +871,7 @@ function parseDateFromCell(text){ // try to parse YYYY-MM-DD or fallback
                         </div>
                         <div style="display:flex;gap:8px;">
                             ${IS_ADMIN ? '<button type="button" id="e_reset_pwd" class="btn">Reset Password</button>' : ''}
-                            ${IS_ADMIN ? '<button type="button" id="e_resend_invite" class="btn">Resend Invitation</button>' : ''}
+                            ${IS_ADMIN ? '<button type="button" id="e_resend_invite" class="btn" hidden>Resend Invitation</button>' : ''}
                             ${IS_ADMIN ? '<button type="button" id="e_copy_invite" class="btn">Copy Invitation</button>' : ''}
                             ${IS_ADMIN ? '<button type="button" id="e_toggle_active" class="btn">Toggle Active</button>' : ''}
                             <button type="submit" id="e_save" class="btn">Save</button>

@@ -1,6 +1,15 @@
 <?php
-session_start();
+// Start session only if it's not already active
+if (function_exists('session_status')) {
+  if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+  }
+} else {
+  @session_start();
+}
 require_once __DIR__ . '/../includes/db.php';
+
+$pageTitle = 'Set New Password';
 
 // only allow access if user is logged in and flagged for password reset
 if (!isset($_SESSION['user']) || empty($_SESSION['user']['id']) || empty($_SESSION['user']['force_password_reset'])) {
@@ -15,7 +24,7 @@ $userName = htmlspecialchars($_SESSION['user']['name'] ?? '');
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Set New Password</title>
+    <title><?= htmlspecialchars($pageTitle ?? 'App') ?></title>
     <link rel="stylesheet" href="styles/login.css">
 </head>
 <body>

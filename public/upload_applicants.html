@@ -17,19 +17,45 @@
     <div id="results" style="margin-top:16px;"></div>
 
     <script>
+      function ensureNotify(){
+        if (window.Notify && typeof window.Notify.push === 'function') return Promise.resolve();
+        return new Promise((resolve)=>{
+          var s = document.createElement('script'); s.src = 'assets/js/notify.js'; s.async = true;
+          s.onload = function(){ setTimeout(resolve, 30); };
+          s.onerror = function(){ resolve(); };
+          document.head.appendChild(s);
+        });
+      }
+
       document.getElementById('uploadForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const formData = new FormData(e.target);
 
         const res = await fetch('upload_applicants.php', { method: 'POST', body: formData });
-        const json = await res.json();
+        // Try to parse JSON; fall back to text
+        let json;
+        try { json = await res.json(); } catch(err) { json = null; }
 
-        let html = "<table border='1' cellpadding='6'><tr><th>File</th><th>Status</th><th>Ticket ID</th></tr>";
-        json.forEach(row => {
-          html += `<tr><td>${row.file}</td><td>${row.status}</td><td>${row.ticket_id || '-'}</td></tr>`;
-        });
-        html += "</table>";
-        document.getElementById('results').innerHTML = html;
+        if (Array.isArray(json)) {
+          let html = "<table border='1' cellpadding='6'><tr><th>File</th><th>Status</th><th>Ticket ID</th></tr>";
+          json.forEach(row => {
+            html += `<tr><td>${row.file}</td><td>${row.status}</td><td>${row.ticket_id || '-'}</td></tr>`;
+          });
+          html += "</table>";
+          document.getElementById('results').innerHTML = html;
+
+          // compute created count and show toast
+          const created = json.filter(r => (r.status || '').toLowerCase().indexOf('created') !== -1 || (r.ticket_id && r.ticket_id > 0)).length;
+          try {
+            await ensureNotify();
+            if (window.Notify && Notify.push) {
+              Notify.push({ from:'Applicants', message: `Uploaded ${created} applicants`, color: '#10b981', duration: 8000 });
+            }
+          } catch(e){ console.warn('notify failed', e); }
+        } else {
+          const text = await res.text();
+          document.getElementById('results').innerHTML = '<pre>' + text.replace(/</g,'&lt;') + '</pre>';
+        }
       });
     </script>
   </body>

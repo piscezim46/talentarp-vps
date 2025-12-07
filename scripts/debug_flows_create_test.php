@@ -5,7 +5,14 @@ require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/flows_helpers.php';
 
 // emulate session user
-session_start();
+    // Start session only if not already active
+    if (function_exists('session_status')) {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
+    } else {
+        @session_start();
+    }
 $_SESSION['user'] = ['id' => 1, 'role' => 'admin', 'access_keys' => ['flows_view']];
 
 header('Content-Type: application/json; charset=utf-8');

@@ -40,7 +40,10 @@ if (!function_exists('_has_access')) {
         if (is_array($ak) && in_array($key, $ak)) return true;
         // legacy fallback: if access_keys missing, allow admin or other legacy role names
         if (empty($ak)) {
-            if (isset($_SESSION['user']['role']) && $_SESSION['user']['role'] === 'admin') return true;
+            // treat Master Admin and common variants as admin as well
+            $r = isset($_SESSION['user']['role']) ? strtolower(trim($_SESSION['user']['role'])) : '';
+            $adminNames = ['admin','master admin','master_admin','master-admin','masteradmin'];
+            if (in_array($r, $adminNames, true)) return true;
             if (!empty($legacyRoles) && isset($_SESSION['user']['role']) && in_array($_SESSION['user']['role'], $legacyRoles, true)) return true;
         }
         return false;

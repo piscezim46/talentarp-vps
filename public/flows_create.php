@@ -24,21 +24,20 @@ if (!is_array($data)) {
 // --- VALIDATION WRAPPER ---
 try { 
     $vals = validate_flow_input($conn, $data, 'positions'); 
-} catch(Exception $e) { 
-    // Clean, safe, no warnings:
-    if (property_exists($e, 'http_code') && !empty($e->http_code)) { 
-        // $code = (int)$e->http_code; 
-    } else { 
-        $code = $e->getCode() ?: 400; 
-    } 
+} catch(Exception $e) {
+    // Don't access arbitrary properties on Exception; use getCode()
+    $code = (int)$e->getCode();
+    if ($code < 100 || $code > 599) {
+        $code = 400;
+    }
 
-    http_response_code($code); 
+    http_response_code($code);
     echo json_encode([
         'success' => false,
         'error'   => $e->getMessage()
-    ]); 
-    exit; 
-} 
+    ]);
+    exit;
+}
  
 // Extract validated values
 $name        = $vals['status_name']; 

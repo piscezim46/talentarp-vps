@@ -5,7 +5,14 @@ header('Content-Type: application/json; charset=utf-8');
 ini_set('display_errors', '0');
 error_reporting(E_ALL);
 
-session_start();
+// Only start a session if one isn't active already (prevents "session_start() ignoring" notices)
+if (function_exists('session_status')) {
+  if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+  }
+} else {
+  @session_start();
+}
 require_once __DIR__ . '/../includes/db.php';
 
 function out(array $p, int $code=200){ http_response_code($code); echo json_encode($p); exit; }
@@ -16,8 +23,9 @@ try {
   $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
   if ($id <= 0) out(['ok'=>false,'error'=>'missing id'], 400);
 
-  // load current
-  $q = $conn->prepare("SELECT p.*, COALESCE(s.status_name,'') AS status_name, COALESCE(s.status_color,'') AS status_color FROM positions p LEFT JOIN positions_status s ON p.status_id=s.status_id WHERE p.id=? LIMIT 1");
+  $selSql = "SELECT p.*, COALESCE(s.status_name,'') AS status_name, COALESCE(s.status_color,'') AS status_color FROM positions p LEFT JOIN positions_status s ON p.status_id=s.status_id WHERE p.id=? LIMIT 1";
+  // load current position (no department restriction)
+  $q = $conn->prepare($selSql);
   if (!$q) throw new RuntimeException('prepare fail: '.$conn->error);
   $q->bind_param('i', $id);
   $q->execute();
@@ -34,6 +42,14 @@ try {
   } elseif (isset($_SESSION['id'])) {
     $currentUserId = (int)$_SESSION['id'];
   }
+
+  // determine current user's access keys (for permission checks)
+  $currentUserAccess = [];
+  if (isset($_SESSION['user']) && is_array($_SESSION['user'])) {
+    $ak = $_SESSION['user']['access_keys'] ?? $_SESSION['user']['access'] ?? [];
+    if (is_array($ak)) $currentUserAccess = $ak;
+  }
+  $canApprove = is_array($currentUserAccess) && in_array('positions_approve', $currentUserAccess, true);
 
   // allowed non-status fields (department/team/manager/director excluded)
   $allowed = [
@@ -82,8 +98,6 @@ try {
     $fromStatus = (int)$cur['status_id'];
 
     if ($toStatus !== $fromStatus) {
-      if ($toStatus === 6) out(['ok'=>false,'error'=>'transition_not_allowed','message'=>'Active status is automated'], 400);
-
       // Ensure the transition exists and is active, and that the target status is active
       $chk = $conn->prepare("SELECT 1 FROM positions_status_transitions t LEFT JOIN positions_status s ON t.to_status_id = s.status_id WHERE t.from_status_id=? AND t.to_status_id=? AND t.active = 1 AND COALESCE(s.active,0) = 1 LIMIT 1");
       if (!$chk) throw new RuntimeException('prepare fail: '.$conn->error);
@@ -92,6 +106,11 @@ try {
       $ok = $chk->get_result()->num_rows > 0;
       $chk->close();
       if (!$ok) out(['ok'=>false,'error'=>'transition_not_allowed','message'=>'Status transition not allowed'], 400);
+
+      // Permission check: require positions_approve to change status
+      if (!$canApprove) {
+        out(['ok'=>false,'error'=>'access_denied','message'=>'Insufficient permission to change status'], 403);
+      }
 
       $sets[] = "status_id = ?";
       $types .= 'i';

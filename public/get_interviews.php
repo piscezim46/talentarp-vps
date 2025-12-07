@@ -1,7 +1,16 @@
 <?php
 require_once __DIR__ . '/../includes/db.php';
 header('Content-Type: application/json; charset=utf-8');
-session_start();
+// Start session only if not already active. This file is often requested
+// via AJAX while the main page already started a session, which causes
+// a PHP notice: "session_start(): Ignoring session_start() because a session is already active".
+if (function_exists('session_status')) {
+  if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+  }
+} else {
+  @session_start();
+}
 
 $applicant_id = isset($_GET['applicant_id']) ? (int)$_GET['applicant_id'] : 0;
 if (!$applicant_id) { echo json_encode(['ok'=>false,'message'=>'Missing applicant_id']); exit; }

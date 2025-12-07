@@ -1,5 +1,12 @@
 <?php
-session_start();
+// Start session only if not active
+if (function_exists('session_status')) {
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        session_start();
+    }
+} else {
+    @session_start();
+}
 require_once '../includes/db.php';
 
 if (!isset($_SESSION['user'])) {

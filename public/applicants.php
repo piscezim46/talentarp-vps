@@ -31,6 +31,8 @@ while ($p = $pos_res->fetch_assoc()) {
 }
 $positions_json = json_encode($positions_by_dept, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP);
 
+$pageTitle = 'Applicants';
+
 // Flash message (from create_applicant.php redirects) 
 $flash = $_GET['msg'] ?? ''; 
 $flash_type = $_GET['type'] ?? ''; 
@@ -303,12 +305,10 @@ document.addEventListener('DOMContentLoaded', function(){
             <?= htmlspecialchars($flash) ?>
         </div>
     <?php endif; ?>
-
-</script>
-
 <link rel="stylesheet" href="styles/layout.css">
 <link rel="stylesheet" href="styles/view_positions.css">
 <link rel="stylesheet" href="styles/applicants.css">
+<link rel="stylesheet" href="assets/css/notify.css">
 <script src="assets/js/notify.js"></script>
 <link rel="stylesheet" href="styles/users.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
@@ -316,6 +316,13 @@ document.addEventListener('DOMContentLoaded', function(){
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
 
 <!-- applicants.css already loaded above -->
+
+<style>
+  /* Use Inter as the primary typeface for the Applicants page, with sensible fallbacks */
+  .content-area, .main, .widget, .app-layout, .app-list, .users-table, .filters-controls, .filters-row {
+    font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, Roboto, 'Helvetica Neue', Arial, sans-serif;
+  }
+</style>
 
 <div class="main">
 
@@ -329,7 +336,7 @@ document.addEventListener('DOMContentLoaded', function(){
       <div class="widget-header positions-header-row">
           <div class="page-title"></i> Applicants</div>
           <div class="header-actions">
-            <?php $can_create = in_array('applicants_create', $_SESSION['user']['access_keys'] ?? []) || in_array($user['role'], ['admin','hr']); ?>
+            <?php $roleNorm = isset($user['role']) ? strtolower(trim($user['role'])) : ''; $can_create = in_array('applicants_create', $_SESSION['user']['access_keys'] ?? []) || in_array($roleNorm, ['admin','master admin','master_admin','master-admin','masteradmin'], true) || in_array($user['role'], ['hr']); ?>
             <button id="openCreateApplicantBtn" class="btn primary btn-primary btn-create <?= $can_create ? '' : 'disabled' ?>" <?php if (! $can_create) echo 'disabled title="Insufficient permissions" aria-disabled="true"'; ?> data-open-create="1"><i class="fa-solid fa-user-plus"></i> Create Applicant</button>
           </div>
         </div>
@@ -382,15 +389,15 @@ document.addEventListener('DOMContentLoaded', function(){
                 <input id="f-date-to" type="date" title="Created to" />
 
                 <button id="clearFilters" class="btn primary" style="color: white;">Clear Filters</button>
-                <button id="bulkUpdateStatusBtn" class="btn-bulk" type="button"><i class="fa-solid fa-arrows-up-down"></i> Bulk Update Status</button>
+                <button id="bulkUpdateStatusBtn" class="btn-bulk" type="button" style="margin: 0px;"><i class="fa-solid fa-arrows-up-down"></i> Bulk Update Status</button>
               </div>
           </div>
         </div>
 
         <!-- two-column layout: left = scrollable list, right = detail card -->
         <div class="app-layout">
-          <div class="app-list">
-              <table class="users-table">
+            <div class="app-list">
+              <table class="users-table table-scroll">
       <thead>
         <tr>
           <th class="col-select"><input type="checkbox" id="selectAllApplicants" title="Select all"></th>
@@ -402,11 +409,6 @@ document.addEventListener('DOMContentLoaded', function(){
           <th>Full Name</th>
           <th>Age</th>
           <th>Gender</th>
-          <th>Nationality</th>
-          <th>Degree</th>
-          <th>Years Exp</th>
-              <th>Created Date</th>
-          <th class="sticky-actions" hidden>Actions</th>
         </tr>
       </thead>
       <tbody id="applicants-body">
@@ -459,7 +461,7 @@ document.addEventListener('DOMContentLoaded', function(){
           <td><?= $yrs ?></td>
           <td><?= htmlspecialchars($created) ?></td>
           <td class="sticky-actions" hidden>
-            <?php if (in_array($user['role'], ['admin','hr'])): ?>
+            <?php $roleNorm = isset($user['role']) ? strtolower(trim($user['role'])) : ''; if (in_array($roleNorm, ['admin','master admin','master_admin','master-admin','masteradmin'], true) || in_array($user['role'], ['hr'])): ?>
                 <?php if (!empty($resume)): ?>
                   <?php
                     // build resume href relative to public/ directory
@@ -485,8 +487,8 @@ document.addEventListener('DOMContentLoaded', function(){
           </td>
         </tr>
       <?php endwhile; ?>
-      </tbody>
-              </table>
+        </tbody>
+            </table>
           </div><!-- .app-list -->
         </div><!-- .app-layout -->
     </div> 
@@ -620,6 +622,39 @@ document.addEventListener('DOMContentLoaded', function(){
       } catch(err) { console.error('clearFilters failed', err); }
     });
   }
+
+  // If URL contains filter params (e.g. from dashboard), prefill controls and apply filters
+  try {
+    const params = new URLSearchParams(window.location.search || '');
+    let shouldApply = false;
+    if (params) {
+      // status: accept either numeric id or status name
+      if (params.has('f-status')) {
+        const sval = params.get('f-status') || '';
+        if (sval && filters.status) {
+          // try match by option value first
+          let found = Array.from(filters.status.options).find(o => (o.value||'') === sval || (o.value||'').toString() === String(parseInt(sval,10)));
+          if (!found) {
+            // try match by option text (case-insensitive)
+            const sl = sval.toString().toLowerCase();
+            found = Array.from(filters.status.options).find(o => (o.textContent||'').toString().toLowerCase() === sl || (o.textContent||'').toString().toLowerCase().indexOf(sl) !== -1);
+          }
+          if (found) { filters.status.value = found.value; shouldApply = true; }
+        }
+      }
+      if (params.has('f-date-from') && filters.dateFrom) { filters.dateFrom.value = params.get('f-date-from') || ''; shouldApply = true; }
+      if (params.has('f-date-to') && filters.dateTo) { filters.dateTo.value = params.get('f-date-to') || ''; shouldApply = true; }
+      if (params.has('f-dept') && filters.dept) { filters.dept.value = params.get('f-dept') || ''; shouldApply = true; }
+      if (params.has('f-team') && filters.team) { filters.team.value = params.get('f-team') || ''; shouldApply = true; }
+      if (params.has('f-manager') && filters.manager) { filters.manager.value = params.get('f-manager') || ''; shouldApply = true; }
+      if (params.has('f-role') && filters.role) { filters.role.value = params.get('f-role') || ''; shouldApply = true; }
+      if (params.has('f-name')) { const n = params.get('f-name') || ''; const nameEl = document.getElementById('f-name'); if (nameEl) { nameEl.value = n; shouldApply = true; } }
+    }
+    if (shouldApply) {
+      // delay slightly to ensure any dependent populates (team->positions) have chance to run
+      setTimeout(applyFilters, 25);
+    }
+  } catch (e) { console.warn('prefill filters from URL failed', e); }
 
   // expose helper to get selected applicant IDs
   window.getSelectedApplicantIds = function(){
@@ -1095,14 +1130,57 @@ document.addEventListener('DOMContentLoaded', function () {
       if (modalContent) modalContent.innerHTML = html;
       // execute inline scripts returned in fragment
       if (modalContent) Array.from(modalContent.querySelectorAll('script')).forEach(function (s) {
-        const ns = document.createElement('script');
-        if (s.src) {
-          ns.src = s.src; ns.async = false; document.body.appendChild(ns); ns.onload = function () { ns.remove(); };
-        } else {
-          ns.text = s.textContent || s.innerText || '';
-          document.body.appendChild(ns);
-          ns.remove();
-        }
+        try {
+          // If this script references an external src, attempt to fetch it first
+          // so we can detect module-like content. Fall back to inserting the
+          // original <script src> when fetch fails.
+          if (s.src) {
+            (async function(){
+              try {
+                const r = await fetch(s.src, { credentials: 'same-origin' });
+                if (r && r.ok) {
+                  const raw = await r.text();
+                  // If the fetched script contains import/export, inject as module so parsing is valid
+                  if (/\bimport\b|\bexport\b/.test(raw) || (s.type && s.type.toLowerCase && s.type.toLowerCase() === 'module')) {
+                    console.debug('injecting fetched external script as module', s.src);
+                    const m = document.createElement('script'); m.type = 'module'; m.text = raw; document.body.appendChild(m); try{ m.remove(); }catch(e){}
+                  } else if (/\bawait\b/.test(raw)) {
+                    // Wrap top-level await into an async IIFE so fetched external scripts that
+                    // use await can run without requiring module semantics.
+                    const wrapper = '(async function(){\n' + raw + '\n})().catch(function(e){console.error(e)});';
+                    const w = document.createElement('script'); w.text = wrapper; document.body.appendChild(w); try{ w.remove(); }catch(e){}
+                  } else {
+                    // safe to attach as classic external script
+                    const ext = document.createElement('script'); ext.src = s.src; ext.async = false; document.body.appendChild(ext); ext.onload = function(){ try{ ext.remove(); }catch(e){} };
+                  }
+                  return;
+                }
+              } catch (err) {
+                // fetch failed; fall back to appending original src as module for safety
+                console.debug('fetch of external fragment script failed, falling back to module script for', s.src, err);
+              }
+              try {
+                const fallback = document.createElement('script'); fallback.src = s.src; fallback.type = 'module'; fallback.async = false; document.body.appendChild(fallback); fallback.onload = function(){ try{ fallback.remove(); }catch(e){} };
+              } catch(e){}
+            })();
+            return;
+          }
+
+          // Inline script: inspect content and decide how to execute.
+          const raw = s.textContent || s.innerText || '';
+          // If script contains import/export, inject as module so parsing is valid
+          if (/\bimport\b|\bexport\b/.test(raw) || (s.type && s.type.toLowerCase && s.type.toLowerCase() === 'module')) {
+            try { console.debug('injecting inline fragment script as module', { length: raw.length }); } catch(e){}
+            const m = document.createElement('script'); m.type = 'module'; m.text = raw; document.body.appendChild(m); try{ m.remove(); }catch(e){}
+          } else if (/\bawait\b/.test(raw)) {
+            // Wrap top-level await into an async IIFE so it can run in classic scripts
+            const wrapper = '(async function(){\n' + raw + '\n})().catch(function(e){console.error(e)});';
+            const w = document.createElement('script'); w.text = wrapper; document.body.appendChild(w); try{ w.remove(); }catch(e){}
+          } else {
+            // safe classic script: append as normal script element
+            const ns = document.createElement('script'); ns.text = raw; document.body.appendChild(ns); try{ ns.remove(); }catch(e){}
+          }
+        } catch (err) { console.warn('inject fragment script failed', err); }
       });
     } catch (e) {
       console.error('openApplicant failed', e);
@@ -1128,6 +1206,18 @@ document.addEventListener('DOMContentLoaded', function () {
       console.error('applicants table click handler error', err);
     }
   });
+
+  // If page loaded with `openApplicant` query param, open that applicant's modal automatically
+  try {
+    const urlParams = new URLSearchParams(window.location.search || '');
+    if (urlParams.has('openApplicant')) {
+      const aid = urlParams.get('openApplicant');
+      if (aid) {
+        // slight delay to ensure modal assets are ready
+        setTimeout(function(){ try { openApplicant(decodeURIComponent(aid)); } catch(e){ console.warn('auto openApplicant failed', e); } }, 120);
+      }
+    }
+  } catch(e) { /* ignore URL parse errors */ }
 });
 </script>
 
@@ -1161,6 +1251,8 @@ document.addEventListener('DOMContentLoaded', function () {
     modal.setAttribute('aria-hidden','false');
     if (countText) countText.textContent = `Selected ${selectedIds.length} applicants.`;
     if (statusSelect) statusSelect.value = '';
+    // clear any previous error styling/message
+    if (countText) { countText.classList.remove('text-error'); }
     if (confirmBtn) confirmBtn.disabled = false;
   }
 
@@ -1215,62 +1307,111 @@ document.addEventListener('DOMContentLoaded', function () {
     if (target.id === 'bulkUpdateClose' || target.id === 'bulkUpdateCancel') closeModal();
   });
 
-  // confirm button action (resolve elements lazily)
-  const confirmBtn = getEl('bulkUpdateConfirm');
-  if (confirmBtn) {
-    confirmBtn.addEventListener('click', async function(){
+  // confirm button action: use event delegation so handler works regardless
+  // of DOM insertion order (modal is rendered after this script block).
+  // Preload notify.js early so toasts are ready
+  ensureNotify();
+
+  document.addEventListener('click', function(e){
+    const btn = e.target && e.target.closest ? e.target.closest('#bulkUpdateConfirm') : null;
+    if (!btn) return;
+
+    (async function(){
+      const confirmBtn = getEl('bulkUpdateConfirm');
       const statusSelect = getEl('bulkStatusSelect');
       const statusId = parseInt((statusSelect && statusSelect.value) || 0, 10);
-      const ids = window.getSelectedApplicantIds ? window.getSelectedApplicantIds() : [];
+      const statusName = (statusSelect && statusSelect.options && statusSelect.selectedIndex > -1) ? (statusSelect.options[statusSelect.selectedIndex].text || '').trim() : '';
+      const ids = window.getSelectedApplicantIds ? window.getSelectedApplicantIds() : Array.from(document.querySelectorAll('.app-select:checked')).map(cb => cb.dataset.id).filter(Boolean);
       if (!ids.length) { closeModal(); return; }
       if (!statusId) {
-        ensureNotify().then(function(){ if (window.Notify && Notify.push) Notify.push({ from:'Applicants', message: 'Select a status', color:'#dc2626' }); else console.warn('Notify.push not available: Select a status'); });
+        // hide any spinner, update inline message and push a toast
+        const spinner = getEl('bulkSpinner'); if (spinner) spinner.style.display = 'none';
+        const countText = getEl('bulkCountText'); if (countText) { countText.textContent = 'Please select a status before confirming.'; countText.classList.add('text-error'); }
+        await ensureNotify();
+        if (window.Notify && Notify.push) Notify.push({ from:'Applicants', message: 'Select a status', color:'#dc2626' });
+        else console.warn('Notify.push not available: Select a status');
         return;
       }
-      confirmBtn.disabled = true;
-      const countText = getEl('bulkCountText');
-      if (countText) countText.textContent = `Applying status to ${ids.length} applicants...`;
 
-      let updated = 0, skipped = 0, failed = 0;
-      for (let i = 0; i < ids.length; i++) {
-        const aid = ids[i];
-        try {
-          const fd = new FormData();
-          fd.append('applicant_id', aid);
-          fd.append('status_id', statusId);
-          fd.append('status_reason', 'Bulk update');
-          const res = await fetch('update_applicant.php', { method: 'POST', body: fd, credentials: 'same-origin' });
-          const json = await res.json().catch(()=>({ ok:false, error:'Invalid response' }));
-          if (json && json.ok) {
-            if (json.affected_rows && parseInt(json.affected_rows,10) > 0) {
-              updated++;
-              try {
-                const row = document.querySelector('.app-row[data-applicant-id="' + aid + '"]');
-                if (row) {
-                  row.dataset.statusId = statusId;
-                  const pill = row.querySelector('td:nth-child(3) .pill');
-                  if (pill) pill.textContent = (json.applicant && json.applicant.status_name) ? json.applicant.status_name : pill.textContent;
-                }
-              } catch(e){}
+      try {
+        // show spinner and update UI
+        const spinner = getEl('bulkSpinner'); if (spinner) spinner.style.display = 'inline-block';
+        if (confirmBtn) confirmBtn.disabled = true;
+        const countText = getEl('bulkCountText');
+        if (countText) countText.textContent = `Applying status to ${ids.length} applicants...`;
+
+        let updated = 0, skipped = 0, failed = 0; let firstError = null;
+        for (let i = 0; i < ids.length; i++) {
+          const aid = ids[i];
+          try {
+            const fd = new FormData();
+            fd.append('applicant_id', aid);
+            fd.append('status_id', statusId);
+            fd.append('status_reason', 'Bulk update');
+            const res = await fetch('update_applicant.php', { method: 'POST', body: fd, credentials: 'same-origin' });
+            if (!res.ok) {
+              const text = await res.text().catch(()=>'<no-response>');
+              console.error('bulk update HTTP error for', aid, res.status, text);
+              failed++; if (!firstError) firstError = `HTTP ${res.status}` + (text ? `: ${text}` : '');
+              continue;
+            }
+            const json = await res.json().catch(()=>({ ok:false, error:'Invalid JSON response' }));
+            if (json && json.ok) {
+              if (json.affected_rows && parseInt(json.affected_rows,10) > 0) {
+                updated++;
+                try {
+                  const row = document.querySelector('.app-row[data-applicant-id="' + aid + '"]');
+                  if (row) {
+                    row.dataset.statusId = statusId;
+                    const pill = row.querySelector('td:nth-child(3) .pill');
+                    if (pill) pill.textContent = (json.applicant && json.applicant.status_name) ? json.applicant.status_name : statusName || pill.textContent;
+                  }
+                } catch(e){}
+              } else {
+                skipped++;
+              }
             } else {
-              skipped++;
+              if (json && json.error && /(Transition not allowed|already in this status)/i.test(json.error)) skipped++;
+              else { failed++; if (!firstError && json && json.error) firstError = json.error; }
+            }
+          } catch (err) {
+            console.error('bulk update failed for', aid, err);
+            failed++; if (!firstError) firstError = (err && err.message) ? err.message : String(err);
+          }
+        }
+
+        closeModal();
+        const total = ids.length;
+        let msg = `Bulk update complete — updated ${updated} of ${total} selected to "${statusName}".` + (skipped ? ` Skipped: ${skipped}.` : '') + (failed ? ` Failed: ${failed}.` : '');
+        if (failed && firstError) msg += ` Error: ${firstError}`;
+
+        await ensureNotify();
+        if (window.Notify && Notify.push) {
+          // If nothing was updated, show a prominent red message explaining no changes were applied.
+          if (updated === 0) {
+            // If there were failures report them, otherwise indicate the update was not applicable.
+            if (failed > 0) {
+              const failMsg = `Bulk update failed for ${failed} of ${total} applicants.` + (firstError ? ` Error: ${firstError}` : '');
+              Notify.push({ from:'Applicants', message: failMsg, color: '#dc2626', duration: 8000 });
+            } else {
+              Notify.push({ from:'Applicants', message: 'Status update not applicable (no applicants changed).', color: '#dc2626', duration: 8000 });
             }
           } else {
-            if (json && json.error && /(Transition not allowed|already in this status)/i.test(json.error)) skipped++;
-            else failed++;
+            // Some updates applied — show success (or partial failure) and keep DOM as-is (rows were updated inline above).
+            Notify.push({ from:'Applicants', message: msg, color: failed ? '#dc2626' : '#10b981', duration: 8000 });
           }
-        } catch (err) {
-          console.error('bulk update failed for', aid, err);
-          failed++;
-        }
+        } else console.warn('Notify.push not available for bulk summary', msg);
+        if (confirmBtn) confirmBtn.disabled = false;
+        const spinner2 = getEl('bulkSpinner'); if (spinner2) spinner2.style.display = 'none';
+      } catch (outerErr) {
+        console.error('Bulk update operation failed', outerErr);
+        await ensureNotify();
+        if (window.Notify && Notify.push) Notify.push({ from:'Applicants', message: `Bulk update failed: ${(outerErr && outerErr.message) ? outerErr.message : String(outerErr)}`, color: '#dc2626' });
+        if (confirmBtn) confirmBtn.disabled = false;
+        const spinner3 = getEl('bulkSpinner'); if (spinner3) spinner3.style.display = 'none';
       }
-
-      closeModal();
-      const total = ids.length;
-      const msg = `Bulk update complete — updated ${updated} of ${total} selected.` + (skipped ? ` Skipped: ${skipped}.` : '') + (failed ? ` Failed: ${failed}.` : '');
-      ensureNotify().then(function(){ if (window.Notify && Notify.push) Notify.push({ from:'Applicants', message: msg, color: failed ? '#dc2626' : '#10b981', duration: 8000 }); else console.warn('Notify.push not available for bulk summary'); });
-    });
-  }
+    })();
+  }, true);
 
   // click outside modal to close
   document.addEventListener('click', function(e){
@@ -1364,5 +1505,93 @@ document.addEventListener('DOMContentLoaded', function(){
   </div>
 </div>
 
-</body> 
+<?php
+// If redirected back after creating applicants, show a toast with the created count.
+if (isset($_GET['created']) && intval($_GET['created']) > 0):
+  $createdCount = intval($_GET['created']);
+  $createdMsg = 'Created ' . $createdCount . ' applicants';
+?>
+<link rel="stylesheet" href="assets/css/notify.css">
+<script>
+  (function(){
+    var msg = <?php echo json_encode($createdMsg); ?>;
+    var s = document.createElement('script'); s.src = 'assets/js/notify.js'; s.async = true;
+    s.onload = function(){ try{ if (window.Notify && Notify.push) Notify.push({ from:'Applicants', message: msg, color: '#10b981', duration: 8000 }); } catch(e){ console.warn('notify failed', e); } };
+    s.onerror = function(){ console.warn('failed to load notify.js'); };
+    document.head.appendChild(s);
+    // remove created/status_error params so refresh doesn't re-trigger the toast
+    try {
+      if (window.history && window.history.replaceState) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('created');
+        url.searchParams.delete('status_error');
+        window.history.replaceState({}, document.title, url.pathname + url.search + url.hash);
+      }
+    } catch(e) { /* ignore */ }
+  })();
+</script>
+<?php endif; ?>
+
+<script>
+// Keep the applicants list in sync when a ticket/modal updates a single applicant.
+document.addEventListener('applicant:updated', function(ev){
+  try {
+    var updated = ev && ev.detail ? ev.detail : {};
+    var aid = updated.applicant_id || updated.applicantId || updated.id;
+    if (!aid) return;
+    var row = document.querySelector('.app-row[data-applicant-id="' + aid + '"]');
+    if (!row) return;
+    // update status id dataset
+    if (typeof updated.status_id !== 'undefined') row.dataset.statusId = updated.status_id;
+    // update status pill text and optional colors
+    var pill = row.querySelector('.status-pill') || row.querySelector('td:nth-child(3) .pill');
+    if (pill && typeof updated.status_name !== 'undefined') {
+      pill.textContent = updated.status_name || pill.textContent;
+      if (updated.status_color) {
+        try { pill.style.background = updated.status_color; } catch(e){}
+      }
+      if (updated.status_text_color) {
+        try { pill.style.color = updated.status_text_color; } catch(e){}
+      }
+    }
+    // update name cell if provided
+    if (typeof updated.full_name !== 'undefined') {
+      var nameCell = row.querySelector('td[data-col="name"]') || row.querySelector('td:nth-child(2)');
+      if (nameCell) nameCell.textContent = updated.full_name;
+    }
+    // update position/title dataset and cell if provided
+    if (typeof updated.position_title !== 'undefined') {
+      row.dataset.positionTitle = updated.position_title;
+      var posCell = row.querySelector('td[data-col="position"]') || row.querySelector('td:nth-child(4)');
+      if (posCell) posCell.textContent = updated.position_title;
+    }
+  } catch (e) { console.warn('applicant:updated handler failed', e); }
+});
+</script>
+
+<script>
+// Ensure the .table-scroll container gets a usable max-height so its
+// internal scrollbar appears and the header (position:sticky) remains fixed.
+(function(){
+  function setTableScrollHeight(){
+    try{
+      var container = document.querySelector('.app-list .table-scroll');
+      if (!container) return;
+      // Compute available vertical space from container top to bottom of viewport
+      var rect = container.getBoundingClientRect();
+      var available = window.innerHeight - rect.top - 40; // 40px bottom margin
+      if (available < 160) available = 160; // minimum height
+      container.style.maxHeight = available + 'px';
+      container.style.overflowY = 'auto';
+    }catch(e){ console.warn('setTableScrollHeight failed', e); }
+  }
+  var tId = null;
+  window.addEventListener('resize', function(){ clearTimeout(tId); tId = setTimeout(setTableScrollHeight, 120); });
+  document.addEventListener('DOMContentLoaded', setTableScrollHeight);
+  // run once now in case DOMContentLoaded already fired
+  setTableScrollHeight();
+})();
+</script>
+
+</body>
 </html>

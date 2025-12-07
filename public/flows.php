@@ -94,7 +94,10 @@ $interview_active_statuses = [];
 $iaRes = $conn->query("SELECT id, name, COALESCE(sort_order,0) AS sort_order FROM interview_statuses WHERE active = 1 ORDER BY sort_order ASC, name ASC");
 if ($iaRes) { while ($r = $iaRes->fetch_assoc()) $interview_active_statuses[] = $r; $iaRes->free(); }
 
-if (file_exists(__DIR__ . '/../includes/header.php')) include __DIR__ . '/../includes/header.php';
+if (file_exists(__DIR__ . '/../includes/header.php')) {
+    $pageTitle = 'Flows';
+    include __DIR__ . '/../includes/header.php';
+}
 if (file_exists(__DIR__ . '/../includes/navbar.php')) include __DIR__ . '/../includes/navbar.php';
 ?>
 <link rel="stylesheet" href="styles/users.css">
@@ -315,6 +318,7 @@ document.addEventListener('DOMContentLoaded', function(){
         newStatusModal.style.display = 'flex';
         var first = document.getElementById('ns_name'); if (first) first.focus();
     }
+    try { window.openNewStatusModal = openNewStatusModal; } catch(e) {}
     function closeNewStatusModal(){
         if (!newStatusModal) return;
         newStatusModal.style.display = 'none';
@@ -395,11 +399,13 @@ document.addEventListener('DOMContentLoaded', function(){
     var allStatuses = <?= json_encode(array_map(function($r){ return ['id'=>(int)$r['status_id'],'name'=>$r['status_name'],'sort'=>(int)$r['sort_order']]; }, $active_statuses)); ?> || [];
 
     // Diagram data generated from server-side status arrays
-    var flowsDiagramData = <?= json_encode([
+    window.flowsDiagramData = <?= json_encode([
         'positions' => array_map(function($r){ return ['id'=> (int)$r['status_id'],'name'=>$r['status_name'],'color'=>$r['status_color'],'sort'=>(int)$r['sort_order'],'transitions'=> ($r['transition_ids']??'')]; }, $statuses),
         'applicants' => array_map(function($r){ return ['id'=> (int)$r['status_id'],'name'=>$r['status_name'],'color'=>$r['status_color'],'sort'=>(int)$r['sort_order'],'transitions'=> ($r['transition_ids']??'')]; }, $app_statuses),
         'interviews' => array_map(function($r){ return ['id'=> (int)$r['id'],'name'=>$r['name'],'color'=>$r['status_color'],'sort'=>(int)$r['sort_order'],'transitions'=> ($r['transition_ids']??'')]; }, $interview_statuses)
     ]) ?> || {};
+    // create a global alias so non-module scripts can reference `flowsDiagramData` directly
+    try { var flowsDiagramData = window.flowsDiagramData; } catch(e) { /* ignore */ }
 
     // small helper to escape values inside generated inputs
     function escapeHtml(str) {
@@ -1239,6 +1245,7 @@ document.addEventListener('DOMContentLoaded', function(){
     var newStatusCancelApp = document.getElementById('ns_cancel_app');
     var newStatusFormApp = document.getElementById('newStatusFormApp');
     function openNewStatusModalApp(){ if (!newStatusModalApp) return; newStatusModalApp.style.display = 'flex'; var first = document.getElementById('ns_name_app'); if (first) first.focus(); }
+    try { window.openNewStatusModalApp = openNewStatusModalApp; } catch(e) {}
     function closeNewStatusModalApp(){ if (!newStatusModalApp) return; newStatusModalApp.style.display = 'none'; try { if (newStatusFormApp) newStatusFormApp.reset(); } catch(e){} }
     if (newStatusCloseApp) newStatusCloseApp.addEventListener('click', closeNewStatusModalApp);
     if (newStatusCancelApp) newStatusCancelApp.addEventListener('click', closeNewStatusModalApp);
@@ -1325,7 +1332,15 @@ document.addEventListener('DOMContentLoaded', function(){
         panelInt = panelsArr2.find(function(p){ return ((p.querySelector('.flow-panel-title')||{}).textContent||'').trim() === 'Interview Ticket Flow'; }) || null;
         if (panelInt) {
             var headerNewInt = panelInt.querySelector('.flow-panel-actions a');
-            if (headerNewInt) headerNewInt.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); openNewStatusModalInt(); });
+            if (headerNewInt) headerNewInt.addEventListener('click', function(e){
+                e.preventDefault(); e.stopPropagation();
+                // call the global opener if available, otherwise fallback to directly opening the modal
+                if (typeof window.openNewStatusModalInt === 'function') {
+                    try { window.openNewStatusModalInt(); } catch(err){ console.error('openNewStatusModalInt failed', err); }
+                } else {
+                    var m = document.getElementById('newStatusModalInt'); if (m) { m.style.display = 'flex'; var first = document.getElementById('ns_name_int'); if (first) first.focus(); }
+                }
+            });
         }
     }
     var toggleEditBtnInt = document.getElementById('toggleEditBtnInt');
@@ -1371,6 +1386,8 @@ document.addEventListener('DOMContentLoaded', function(){
     var newStatusCancelInt = document.getElementById('ns_cancel_int');
     var newStatusFormInt = document.getElementById('newStatusFormInt');
     function openNewStatusModalInt(){ if (!newStatusModalInt) return; newStatusModalInt.style.display = 'flex'; var first = document.getElementById('ns_name_int'); if (first) first.focus(); }
+    // expose globally so click handlers added elsewhere can call it
+    try { window.openNewStatusModalInt = openNewStatusModalInt; } catch(e) {}
     function closeNewStatusModalInt(){ if (!newStatusModalInt) return; newStatusModalInt.style.display = 'none'; try { if (newStatusFormInt) newStatusFormInt.reset(); } catch(e){} }
     if (newStatusCloseInt) newStatusCloseInt.addEventListener('click', closeNewStatusModalInt);
     if (newStatusCancelInt) newStatusCancelInt.addEventListener('click', closeNewStatusModalInt);

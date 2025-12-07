@@ -1,5 +1,12 @@
 <?php
-session_start();
+// Start session only if not already active
+if (function_exists('session_status')) {
+  if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+  }
+} else {
+  @session_start();
+}
 require_once __DIR__ . '/../includes/db.php';
 
 // page variables required by header.php
@@ -23,10 +30,18 @@ echo '<script>(function(){ try{ var found = Array.from(document.styleSheets||[])
 
 // Fetch positions
 $positions = [];
-if ($res = $conn->query("SELECT id, title FROM positions ORDER BY title")) {
+// Load positions with department filtering when applicable
+try {
+  $sqlPos = "SELECT p.id, p.title FROM positions p ORDER BY p.title";
+
+  $stmtPos = $conn->prepare($sqlPos);
+  if ($stmtPos) {
+    $stmtPos->execute();
+    $res = $stmtPos->get_result();
     while ($r = $res->fetch_assoc()) $positions[] = $r;
-    $res->free();
-}
+    $stmtPos->close();
+  }
+} catch (Throwable $_) { /* fallback to empty positions */ }
 
 // Fetch departments (only active)
 $departments = [];
@@ -46,14 +61,19 @@ if ($res = $conn->query("SELECT team_id AS id, team_name AS name, department_id,
   $res->free();
 }
 
-// Fetch applicants for list
+// Fetch applicants for list — restrict by position.department when applicable
 $applicants = [];
-// Note: some installations do not have a literal `status` column on applicants.
-// Select only known columns to avoid SQL errors; views will gracefully handle missing status.
-if ($res = $conn->query("SELECT applicant_id, full_name, email, phone, resume_file, created_at FROM applicants ORDER BY created_at DESC")) {
-  while ($r = $res->fetch_assoc()) $applicants[] = $r;
-  $res->free();
-}
+try {
+    $sqlApp = "SELECT a.applicant_id, a.full_name, a.email, a.phone, a.resume_file, a.created_at FROM applicants a LEFT JOIN positions p ON a.position_id = p.id ORDER BY a.created_at DESC";
+
+    $stmtApp = $conn->prepare($sqlApp);
+    if ($stmtApp) {
+      $stmtApp->execute();
+      $res = $stmtApp->get_result();
+      while ($r = $res->fetch_assoc()) $applicants[] = $r;
+      $stmtApp->close();
+    }
+} catch (Throwable $_) { /* fallback */ }
 
 // JSON for client
 $positions_json = json_encode($positions, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP);
@@ -304,17 +324,39 @@ document.addEventListener('DOMContentLoaded', function () {
 
       // run any inline scripts returned in the fragment
       Array.from(content.querySelectorAll('script')).forEach(function (s) {
-        const ns = document.createElement('script');
-        if (s.src) {
-          ns.src = s.src;
-          ns.async = false;
-          document.body.appendChild(ns);
-          ns.onload = function () { ns.remove(); };
-        } else {
-          ns.text = s.textContent || s.innerText || '';
-          document.body.appendChild(ns);
-          ns.remove();
-        }
+        try {
+          if (s.src) {
+            (async function(){
+              try {
+                const r = await fetch(s.src, { credentials: 'same-origin' });
+                if (r && r.ok) {
+                  const raw = await r.text();
+                  if (/\bimport\b|\bexport\b/.test(raw) || (s.type && s.type.toLowerCase && s.type.toLowerCase() === 'module')) {
+                    const m = document.createElement('script'); m.type = 'module'; m.text = raw; document.body.appendChild(m); try{ m.remove(); }catch(e){}
+                  } else if (/\bawait\b/.test(raw)) {
+                    const wrapper = '(async function(){\n' + raw + '\n})().catch(function(e){console.error(e)});';
+                    const w = document.createElement('script'); w.text = wrapper; document.body.appendChild(w); try{ w.remove(); }catch(e){}
+                  } else {
+                    const ext = document.createElement('script'); ext.type = 'module'; ext.src = s.src; ext.async = false; document.body.appendChild(ext); ext.onload = function(){ try{ ext.remove(); }catch(e){} };
+                  }
+                  return;
+                }
+              } catch (err) {}
+              try { const fallback = document.createElement('script'); fallback.src = s.src; fallback.type = 'module'; fallback.async = false; document.body.appendChild(fallback); fallback.onload = function(){ try{ fallback.remove(); }catch(e){} }; } catch(e){}
+            })();
+            return;
+          }
+
+          const raw = s.textContent || s.innerText || '';
+          if (/\bimport\b|\bexport\b/.test(raw)) {
+            const m = document.createElement('script'); m.type = 'module'; m.text = raw; document.body.appendChild(m); try{ m.remove(); }catch(e){}
+          } else if (/\bawait\b/.test(raw)) {
+            const wrapper = '(async function(){\n' + raw + '\n})().catch(function(e){console.error(e)});';
+            const w = document.createElement('script'); w.text = wrapper; document.body.appendChild(w); try{ w.remove(); }catch(e){}
+          } else {
+            const ns = document.createElement('script'); ns.type = 'module'; ns.text = raw; document.body.appendChild(ns); try{ ns.remove(); }catch(e){}
+          }
+        } catch (err) { console.warn('inject fragment script failed', err); }
       });
     } catch (e) {
       console.error('openApplicant failed', e);
@@ -343,14 +385,21 @@ document.addEventListener('DOMContentLoaded', function () {
 // Use a LEFT JOIN to positions_status (if present) to resolve a human-readable status name.
 $tickets_widget = [];
 if ($conn) {
-  $q = "SELECT a.applicant_id AS ticket_id, COALESCE(NULLIF(a.full_name, ''), 'Unknown') AS subject, COALESCE(s.status_name, '') AS status, a.created_at
-      FROM applicants a
-      LEFT JOIN positions_status s ON a.status_id = s.status_id
-      ORDER BY a.created_at DESC LIMIT 10";
-  if ($res = $conn->query($q)) {
-    while ($r = $res->fetch_assoc()) $tickets_widget[] = $r;
-    $res->free();
-  }
+  try {
+    $q = "SELECT a.applicant_id AS ticket_id, COALESCE(NULLIF(a.full_name, ''), 'Unknown') AS subject, COALESCE(s.status_name, '') AS status, a.created_at
+        FROM applicants a
+        LEFT JOIN positions p ON a.position_id = p.id
+        LEFT JOIN positions_status s ON a.status_id = s.status_id
+        ORDER BY a.created_at DESC LIMIT 10";
+
+    $stmtW = $conn->prepare($q);
+    if ($stmtW) {
+        $stmtW->execute();
+        $res = $stmtW->get_result();
+        while ($r = $res->fetch_assoc()) $tickets_widget[] = $r;
+        $stmtW->close();
+    }
+  } catch (Throwable $_) { /* ignore */ }
 }
 ?>
 

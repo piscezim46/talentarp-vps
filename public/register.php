@@ -1,6 +1,15 @@
 <?php
-session_start();
+// Start session only if not already active
+if (function_exists('session_status')) {
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        session_start();
+    }
+} else {
+    @session_start();
+}
 require_once '../includes/db.php';
+
+$pageTitle = 'Register';
 
 $error = '';
 
@@ -29,7 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <!DOCTYPE html>
 <html>
 <head>
-    <title>CS Recruitment Platform | Register</title>
+    <title><?= htmlspecialchars($pageTitle ?? 'App') ?></title>
     <link rel="stylesheet" href="styles/login.css">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
 </head>

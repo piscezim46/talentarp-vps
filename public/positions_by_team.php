@@ -25,23 +25,22 @@ if (ctype_digit($team)) {
     }
 }
 
-$positions = [];
-$pstmt = $conn->prepare(
-    "SELECT p.id, p.title, COALESCE(p.department,'') AS department, COALESCE(p.team,'') AS team, p.status_id, COALESCE(s.status_name,'') AS status_name
+ $positions = [];
+ $sql = "SELECT p.id, p.title, COALESCE(p.department,'') AS department, COALESCE(p.team,'') AS team, p.status_id, COALESCE(s.status_name,'') AS status_name
      FROM positions p
      LEFT JOIN positions_status s ON p.status_id = s.status_id
-     WHERE COALESCE(p.team,'') = ?
-     ORDER BY p.id DESC"
-);
-if ($pstmt) {
-    $pstmt->bind_param('s', $team_name);
-    $pstmt->execute();
-    $pres = $pstmt->get_result();
-    while ($row = $pres->fetch_assoc()) {
-        $positions[] = $row;
-    }
-    $pstmt->close();
-}
+     WHERE COALESCE(p.team,'') = ? ORDER BY p.id DESC";
+
+ $pstmt = $conn->prepare($sql);
+ if ($pstmt) {
+     $pstmt->bind_param('s', $team_name);
+     $pstmt->execute();
+     $pres = $pstmt->get_result();
+     while ($row = $pres->fetch_assoc()) {
+         $positions[] = $row;
+     }
+     $pstmt->close();
+ }
 
 echo json_encode($positions);
 exit;

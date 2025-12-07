@@ -107,8 +107,22 @@
 
 .btn[disabled]:hover, .btn.disabled:hover { transform: none; }
 
-/* Widget / panel */
-.widget { background: var(--panel, #fafafa); border: 1px solid rgba(15,23,42,0.04); border-left: 6px solid var(--accent); border-radius:10px; padding:18px; margin-bottom:18px; box-shadow: none; }
+/* Widget / panel: match Positions card behavior — flexible height, consistent bottom margin */
+.widget {
+    background: var(--panel, #fafafa);
+    border: 1px solid rgba(15,23,42,0.04);
+    border-left: 6px solid var(--accent);
+    border-radius: 10px;
+    padding: 18px;
+    margin-bottom: 8px; /* keep 8px gap to the bottom as requested */
+    box-shadow: none;
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto; /* allow widget to grow/shrink with viewport/zoom */
+    min-height: 0; /* important for flex children to allow proper scrolling */
+    overflow: hidden; /* let inner .table-scroll show scrollbars only */
+    max-height: 96%;
+}
 .widget h3 { margin:0 0 12px 0; color:var(--accent); }
 
 /* Table styling within applicants page */
@@ -117,9 +131,27 @@
 .widget th, .widget td { padding:10px; vertical-align: middle; text-align:center; color:var(--text-main); border-bottom:1px solid rgba(15,23,42,0.04); }
 .widget tbody tr:hover { background: rgba(53,156,246,0.03); }
 
-/* compact columns (keep stable widths) */
-.col-select { min-width:48px; padding:6px; text-align:center; }
-.col-id { min-width:64px; padding:6px; text-align:center; font-variant-numeric: tabular-nums; }
+ /* compact columns (keep stable widths)
+     Use more specific selectors to override generic rules in users.css which
+     is often loaded after this file. These keep the selection column narrow
+     and the ID column slightly wider while allowing other columns to be
+     more relaxed for readability. */
+ .app-list .users-table th.col-select, .app-list .users-table td.col-select,
+ .app-list table.users-table th.col-select, .app-list table.users-table td.col-select {
+     width: 2% !important;
+     min-width: 28px;
+     padding: 6px;
+     text-align: center;
+ }
+
+.app-list .users-table th.col-id, .app-list .users-table td.col-id,
+ .app-list table.users-table th.col-id, .app-list table.users-table td.col-id {
+     width: 3% !important;
+     min-width: 36px;
+     padding: 6px;
+     text-align: center;
+     font-variant-numeric: tabular-nums;
+ }
 
 .pill { display:inline-block; padding:4px 10px; border-radius:999px; background:#f3f4f6; color:var(--text-main); font-size:12px; border:1px solid rgba(15,23,42,0.04); }
 
@@ -161,31 +193,34 @@
    - card uses viewport-relative height so it remains dynamic
    - inner .table-wrap scrolls; table header stays sticky */
 /* Make the widget fill most of viewport height so the background card takes full height */
-.widget { height: 90vh; display: flex; flex-direction: column; }
+/* removed fixed 90vh; widget now flexes with layout to match Positions behavior */
 
 .app-layout { display:flex; gap:12px; align-items:stretch; flex:1 1 auto; }
 
-.app-list { margin-bottom: 0; border-radius: 10px; background: var(--panel, #fafafa); padding: 12px; box-sizing: border-box; border: 1px solid rgba(15,23,42,0.04); flex:1 1 50%; min-height:0; }
+.app-list { margin-bottom: 0; border-radius: 10px; background: var(--panel, #fafafa); padding: 12px; box-sizing: border-box; border: 1px solid rgba(15,23,42,0.04); flex:1 1 50%; min-height:0; display: flex; flex-direction: column; }
 
 /* Make the applicants list vertically scrollable with a styled scrollbar */
 .app-list {
-    /* Use up to 90% of available viewport height and allow vertical scroll inside the card */
-    max-height: 90vh;
-    overflow-y: auto;
+    /* Let the parent .widget control overall height. Make this a flex child
+       that fills available space. The inner .table-scroll element handles
+       the actual scrolling so the header can remain sticky within it. */
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: visible;
 }
 
 /* WebKit scrollbar styling */
-.app-list::-webkit-scrollbar { width: 12px; }
-.app-list::-webkit-scrollbar-track { background: transparent; }
-.app-list::-webkit-scrollbar-thumb {
+.app-list .table-scroll::-webkit-scrollbar { width: 12px; }
+.app-list .table-scroll::-webkit-scrollbar-track { background: transparent; }
+.app-list .table-scroll::-webkit-scrollbar-thumb {
     background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #0b1220 40%));
     border-radius: 8px;
     border: 3px solid rgba(255,255,255,0.03);
 }
-.app-list::-webkit-scrollbar-thumb:hover { filter: brightness(0.92); }
+.app-list .table-scroll::-webkit-scrollbar-thumb:hover { filter: brightness(0.92); }
 
 /* Firefox scrollbar styling */
-.app-list { scrollbar-width: thin; scrollbar-color: var(--accent) transparent; }
+.app-list .table-scroll { scrollbar-width: thin; scrollbar-color: var(--accent) transparent; }
 
 /* Ensure table inside app-list can shrink and allow scrolling of its container (fixes flex/min-height issues) */
 .app-list table { min-width: 100%; }
@@ -200,9 +235,64 @@
 .multi-dd-menu { max-height: 40vh; overflow-y: auto; }
 
 /* Scroll only the applicants list, not the outer widget/card */
-.app-list .table-scroll { max-height: 60vh; overflow-y: auto; border-radius: 6px; padding: 6px 0; }
+.app-list .table-scroll { /* fill available card height and scroll internally */
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-gutter: stable; /* reserve scrollbar gutter */
+    -ms-overflow-style: auto; /* IE/Edge */
+    border-radius: 6px; padding: 6px 0;
+}
 .app-list .table-scroll table, .app-list > table, .app-list .users-table { margin: 0; width: 100%; border-collapse: collapse; }
 .app-list .table-wrap table { margin: 0; width: 100%; border-collapse: collapse; }
+
+/* Constrain the table-scroll container so it shows a vertical scrollbar
+   when the applicants list is long. Keep the header sticky within this
+   scrollable container. */
+.app-list .table-scroll {
+    max-height: 65vh; /* adjust to taste */
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Use fixed table layout and split thead/tbody into block-level boxes so the
+   tbody can scroll independently while the header remains visible. To keep
+   columns aligned, set explicit widths for key columns using nth-child.
+   This approach is robust across browsers and avoids relying on nested
+   stacking contexts that sometimes break position:sticky. */
+.app-list .table-scroll table { table-layout: fixed; width: 100%; }
+.app-list .table-scroll thead { display: block; }
+.app-list .table-scroll tbody { display: block; max-height: inherit; overflow-y: auto; }
+
+/* Column widths (tweak percentages if you prefer different sizing) */
+.app-list .table-scroll thead th:nth-child(1), .app-list .table-scroll tbody td:nth-child(1) { width: 2%; }
+.app-list .table-scroll thead th:nth-child(2), .app-list .table-scroll tbody td:nth-child(2) { width: 3%; }
+.app-list .table-scroll thead th:nth-child(3), .app-list .table-scroll tbody td:nth-child(3) { width: 12%; }
+.app-list .table-scroll thead th:nth-child(4), .app-list .table-scroll tbody td:nth-child(4) { width: 15%; }
+.app-list .table-scroll thead th:nth-child(5), .app-list .table-scroll tbody td:nth-child(5) { width: 10%; }
+.app-list .table-scroll thead th:nth-child(6), .app-list .table-scroll tbody td:nth-child(6) { width: 8%; }
+.app-list .table-scroll thead th:nth-child(7), .app-list .table-scroll tbody td:nth-child(7) { width: 26%; }
+.app-list .table-scroll thead th:nth-child(8), .app-list .table-scroll tbody td:nth-child(8) { width: 4%; }
+.app-list .table-scroll thead th:nth-child(9), .app-list .table-scroll tbody td:nth-child(9) { width: 5%; }
+.app-list .table-scroll thead th:nth-child(10), .app-list .table-scroll tbody td:nth-child(10) { width: 6%; }
+.app-list .table-scroll thead th:nth-child(11), .app-list .table-scroll tbody td:nth-child(11) { width: 6%; }
+.app-list .table-scroll thead th:nth-child(12), .app-list .table-scroll tbody td:nth-child(12) { width: 5%; }
+.app-list .table-scroll thead th:nth-child(13), .app-list .table-scroll tbody td:nth-child(13) { width: 9%; }
+
+/* Ensure cells wrap properly and align when using display:block on thead/tbody */
+.app-list .table-scroll thead th, .app-list .table-scroll tbody td { box-sizing: border-box; }
+/* Prevent Created Date column wrapping (keep it on one line) */
+.app-list .table-scroll thead th:nth-child(13), .app-list .table-scroll tbody td:nth-child(13) {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Scrollbar styling for the scroll container */
+.app-list .table-scroll::-webkit-scrollbar { width: 12px; }
+.app-list .table-scroll::-webkit-scrollbar-track { background: transparent; }
+.app-list .table-scroll::-webkit-scrollbar-thumb { background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #0b1220 40%)); border-radius:8px; border:3px solid rgba(255,255,255,0.03); }
+.app-list .table-scroll { scrollbar-width: thin; scrollbar-color: var(--accent) transparent; }
 
 /* Make the table header sticky so it stays visible while the body scrolls */
 
@@ -220,7 +310,7 @@
 }
 
 /* Match Users table layout (fixed) to keep column widths and text rendering consistent */
-.app-list .users-table { table-layout: fixed; }
+.app-list .users-table { table-layout: auto; }
 
 .app-list .users-table thead th, #applicantsTable thead th { background: var(--surface,#ffffff); color: var(--text-main); border-bottom: 2px solid rgba(15,23,42,0.06); font-weight:700; }
 .app-list .users-table th, .app-list .users-table td, #applicantsTable th, #applicantsTable td {
@@ -275,9 +365,12 @@
     background: var(--surface, #ffffff) !important;
 }
 
-/* Ensure all descendants default to readable color (override fragments that set white) */
-#applicantViewerModal .modal-card *,
-#createApplicantModal .modal-card * {
+/* Ensure most descendants default to readable color (override fragments that set white).
+   Exclude badges/pills and status-action buttons so their inline/background colors
+   (set by JS or server) are allowed to show. Keeping the rule scoped avoids
+   masking dynamic inline styles used for status badges/buttons. */
+#applicantViewerModal .modal-card *:not(.status-badge):not(.status-pill):not(.pill):not(.status-action-btn):not(.status-action):not(.btn):not(.btn-primary) ,
+#createApplicantModal .modal-card *:not(.status-badge):not(.status-pill):not(.pill):not(.status-action-btn):not(.status-action) {
     color: var(--text-main, #111827) !important;
 }
 
@@ -301,8 +394,8 @@
 #createApplicantModal .modal-card ::placeholder { color: rgba(17,24,39,0.45) !important; }
 
 /* Buttons inside modal viewer should use site accent and be readable */
-#applicantViewerModal .modal-card .btn, #applicantViewerModal .modal-card button,
-#createApplicantModal .modal-card .btn, #createApplicantModal .modal-card button {
+#applicantViewerModal .modal-card .btn,
+#createApplicantModal .modal-card .btn {
     background: var(--accent) !important;
     color: #fff !important;
     border: none !important;
@@ -402,7 +495,7 @@
 
 /* Make table rows indicate clickability, but keep select column default cursor */
 .widget tbody tr, .app-row { cursor: pointer; }
-.col-select { cursor: default; min-width:48px; padding:6px; text-align:center; display:table-cell; vertical-align:middle; }
+.col-select { cursor: default; min-width:36px; padding:6px; text-align:center; display:table-cell; vertical-align:middle; }
 .col-select input[type="checkbox"], .app-select {
     /* Do not change column width or row height — scale the native control by 20% */
     transform: scale(1.20);
@@ -435,9 +528,11 @@
 /* Status pill that receives dynamic colors via data attributes and JS */
 .status-pill { padding: 6px 10px; border-radius: 999px; font-weight:700; display:inline-block; border:1px solid rgba(0,0,0,0.06); }
 
-/* The widget background card should not show its own scrollbar; the
-    `.app-list` container handles vertical scrolling for records. */
-.widget { overflow: visible; }
+/* Bulk update spinner shown inside modal while operation runs */
+.bulk-spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid rgba(0,0,0,0.08); border-top-color: var(--accent); border-radius: 50%; animation: bulk-spin 0.9s linear infinite; margin-left: 8px; vertical-align: middle; }
+@keyframes bulk-spin { to { transform: rotate(360deg); } }
+
+/* widget overflow handled in unified .widget rule above */
 
 /* Sortable header indicators */
 .widget thead th.sortable { cursor: pointer; position: relative; }
@@ -451,7 +546,20 @@
 /* Primary button class used across Applicants page */
 .btn-primary {
     color: rgb(255, 255, 255);
-    margin-bottom: 5px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: none;
+    background: var(--accent);
+    border-width: initial;
+    border-style: none;
+    border-color: initial;
+    border-image: initial;
+    padding: 10px 14px;
+    border-radius: 10px;
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+.btn {
+    color: rgb(255, 255, 255);
     font-weight: 700;
     cursor: pointer;
     box-shadow: none;

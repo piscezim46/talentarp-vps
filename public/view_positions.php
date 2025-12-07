@@ -1,5 +1,12 @@
 <?php
-session_start();
+// Start session only if not already active to avoid duplicate-start notices
+if (function_exists('session_status')) {
+  if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+  }
+} else {
+  @session_start();
+}
 require_once '../includes/db.php';
 
 // page variables required by includes/header.php so header renders correctly
@@ -59,9 +66,9 @@ if ($colCheck && $colCheck->num_rows > 0) {
 
 // query statuses: include color if column exists, otherwise return default color
 if ($has_color_col) {
-    $sr = $conn->query("SELECT status_id, status_name, COALESCE(status_color, '#777777') AS status_color FROM positions_status");
+  $sr = $conn->query("SELECT status_id, status_name, COALESCE(status_color, '#777777') AS status_color FROM positions_status");
 } else {
-    $sr = $conn->query("SELECT status_id, status_name, '#777777' AS status_color FROM positions_status");
+  $sr = $conn->query("SELECT status_id, status_name, '#777777' AS status_color FROM positions_status");
 }
 
 if ($sr) {
@@ -137,36 +144,42 @@ try {
 
 // include created_ts in the result so we can compute diff against DB time
 $positions_all = [];
-$sql = "
-  SELECT
-    p.id,
-    p.title,
-    p.department,
-    p.team,
-    p.manager_name,
-    p.requirements,
-    p.employment_type,
-    p.openings,
-    p.status_id,
-    p.created_at,
-    UNIX_TIMESTAMP(p.created_at) AS created_ts,
-    COALESCE(s.status_name, '') AS status_name
-  FROM positions p
-  LEFT JOIN positions_status s ON p.status_id = s.status_id
-  ORDER BY p.created_at DESC
-";
-$pos_res = $conn->query($sql);
-if ($pos_res) {
-    while ($r = $pos_res->fetch_assoc()) $positions_all[] = $r;
-    $pos_res->free();
-} else {
-    // DB query failed — show short debug and stop further rendering so we can see the error
-    echo '<div class="db-debug-error">';
-    echo '<strong>DEBUG:</strong> positions query failed: ' . htmlspecialchars($conn->error) . '<br>';
-    echo '<small>SQL:</small> ' . htmlspecialchars($sql);
-    echo '</div>';
-    // optional: halt to avoid rendering broken page (remove "exit" after debugging)
-    // exit;
+// Use department-based filtering helper when applicable (admin bypasses filter)
+try {
+    $sql = "
+      SELECT
+        p.id,
+        p.title,
+        p.department,
+        p.team,
+        p.manager_name,
+        p.requirements,
+        p.employment_type,
+        p.openings,
+        p.status_id,
+        p.created_at,
+        UNIX_TIMESTAMP(p.created_at) AS created_ts,
+        COALESCE(s.status_name, '') AS status_name
+      FROM positions p
+      LEFT JOIN positions_status s ON p.status_id = s.status_id
+    ";
+
+    $sql .= " ORDER BY p.created_at DESC";
+    $stmt = $conn->prepare($sql);
+    if ($stmt) {
+      $stmt->execute();
+      $res = $stmt->get_result();
+      while ($r = $res->fetch_assoc()) $positions_all[] = $r;
+      $stmt->close();
+    } else {
+      throw new Exception('prepare failed: ' . $conn->error);
+    }
+} catch (Throwable $e) {
+  // DB query failed — log the error server-side and continue with an empty result set.
+  error_log('view_positions: positions query failed: ' . ($conn->error ?? $e->getMessage()));
+  $positions_all = [];
+  $positions_count = 0;
+  // do not expose SQL or DB errors to the HTML output
 }
 
 // expose a simple count for debugging/visibility
@@ -176,42 +189,108 @@ $positions_count = count($positions_all);
 
 // build a map of applicant counts per position so we can show counts on cards
 $applicant_counts = [];
-$acRes = $conn->query("SELECT position_id, COUNT(*) AS cnt FROM applicants GROUP BY position_id");
-if ($acRes) {
-  while ($ar = $acRes->fetch_assoc()) {
-    $applicant_counts[(int)$ar['position_id']] = (int)$ar['cnt'];
-  }
-  $acRes->free();
-}
+// Applicant counts per position — restrict by department through positions table when needed
+try {
+    $applicant_counts = [];
+    $sqlAc = "SELECT a.position_id AS position_id, COUNT(*) AS cnt FROM applicants a JOIN positions p ON a.position_id = p.id";
+    // no department filter: count applicants per position across all departments
+    $sqlAc .= ' GROUP BY a.position_id';
+
+    $stmtAc = $conn->prepare($sqlAc);
+    if ($stmtAc) {
+      $stmtAc->execute();
+        $resAc = $stmtAc->get_result();
+        while ($ar = $resAc->fetch_assoc()) {
+            $applicant_counts[(int)$ar['position_id']] = (int)$ar['cnt'];
+        }
+        $stmtAc->close();
+    }
+} catch (Throwable $_) { /* ignore applicant count failures */ }
 
 // Fetch distinct lists for list-based filters
 $titles = [];
-$tres = $conn->query("SELECT DISTINCT COALESCE(NULLIF(TRIM(title),''),'') AS title FROM positions WHERE title IS NOT NULL AND TRIM(title) <> '' ORDER BY title");
-if ($tres) { while ($r = $tres->fetch_assoc()) $titles[] = $r['title']; $tres->free(); }
+// Distinct titles with optional department filter
+ $sqlT = "SELECT DISTINCT COALESCE(NULLIF(TRIM(p.title),''),'') AS title FROM positions p WHERE p.title IS NOT NULL AND TRIM(p.title) <> '' ORDER BY title";
+ $stmtT = $conn->prepare($sqlT);
+ if ($stmtT) {
+   $stmtT->execute();
+   $tres = $stmtT->get_result();
+   while ($r = $tres->fetch_assoc()) $titles[] = $r['title'];
+   $stmtT->close();
+ }
 
+// Build department list from the configured departments (flows setup) so it always
+// reflects the canonical department registry rather than only titles used by positions
 $dept_list = [];
-$dres = $conn->query("SELECT DISTINCT COALESCE(NULLIF(TRIM(department),''),'') AS department FROM positions WHERE department IS NOT NULL AND TRIM(department) <> '' ORDER BY department");
-if ($dres) { while ($r = $dres->fetch_assoc()) $dept_list[] = $r['department']; $dres->free(); }
+foreach ($departments as $d) {
+  $name = trim((string)($d['name'] ?? ''));
+  if ($name !== '') $dept_list[] = $name;
+}
 
+// Build a flat team list from the teams_by_dept registry
 $team_list = [];
-$tmres = $conn->query("SELECT DISTINCT COALESCE(NULLIF(TRIM(team),''),'') AS team FROM positions WHERE team IS NOT NULL AND TRIM(team) <> '' ORDER BY team");
-if ($tmres) { while ($r = $tmres->fetch_assoc()) $team_list[] = $r['team']; $tmres->free(); }
+foreach ($teams_by_dept as $deptId => $arr) {
+  foreach ($arr as $t) {
+    $tname = trim((string)($t['name'] ?? ''));
+    if ($tname !== '') $team_list[] = $tname;
+  }
+}
+// de-duplicate and sort
+$team_list = array_values(array_unique($team_list));
+sort($team_list, SORT_STRING | SORT_FLAG_CASE);
 
 $manager_list = [];
-$mres = $conn->query("SELECT DISTINCT COALESCE(NULLIF(TRIM(manager_name),''),'') AS manager_name FROM positions WHERE manager_name IS NOT NULL AND TRIM(manager_name) <> '' ORDER BY manager_name");
-if ($mres) { while ($r = $mres->fetch_assoc()) $manager_list[] = $r['manager_name']; $mres->free(); }
+ $sqlM = "SELECT DISTINCT COALESCE(NULLIF(TRIM(p.manager_name),''),'') AS manager_name FROM positions p WHERE p.manager_name IS NOT NULL AND TRIM(p.manager_name) <> '' ORDER BY manager_name";
+ $stmtM = $conn->prepare($sqlM);
+ if ($stmtM) {
+   $stmtM->execute();
+   $mres = $stmtM->get_result();
+   while ($r = $mres->fetch_assoc()) $manager_list[] = $r['manager_name'];
+   $stmtM->close();
+ }
 
 $employment_list = [];
-$eres = $conn->query("SELECT DISTINCT COALESCE(NULLIF(TRIM(employment_type),''),'') AS employment FROM positions WHERE employment_type IS NOT NULL AND TRIM(employment_type) <> '' ORDER BY employment");
-if ($eres) { while ($r = $eres->fetch_assoc()) $employment_list[] = $r['employment']; $eres->free(); }
+ $sqlE = "SELECT DISTINCT COALESCE(NULLIF(TRIM(p.employment_type),''),'') AS employment FROM positions p WHERE p.employment_type IS NOT NULL AND TRIM(p.employment_type) <> '' ORDER BY employment";
+ $stmtE = $conn->prepare($sqlE);
+ if ($stmtE) {
+   $stmtE->execute();
+   $eres = $stmtE->get_result();
+   while ($r = $eres->fetch_assoc()) $employment_list[] = $r['employment'];
+   $stmtE->close();
+ }
 
 $openings_list = [];
-$ores = $conn->query("SELECT DISTINCT COALESCE(openings, '') AS openings FROM positions ORDER BY openings ASC");
-if ($ores) { while ($r = $ores->fetch_assoc()) $openings_list[] = $r['openings']; $ores->free(); }
+ $sqlO = "SELECT DISTINCT COALESCE(p.openings, '') AS openings FROM positions p ORDER BY openings ASC";
+ $stmtO = $conn->prepare($sqlO);
+ if ($stmtO) {
+   $stmtO->execute();
+   $ores = $stmtO->get_result();
+   while ($r = $ores->fetch_assoc()) $openings_list[] = $r['openings'];
+   $stmtO->close();
+ }
+// minimum hiring deadline: tomorrow (prevent same-day or past selection)
+$minHiringDeadline = date('Y-m-d', strtotime('+1 day'));
 ?>
 <link rel="stylesheet" href="styles/view_positions.css">
 <link rel="stylesheet" href="assets/css/notify.css">
 <script src="assets/js/notify.js"></script>
+<style>
+/* readonly-like inputs (director/manager) - visually disabled but focusable */
+.modal-input[readonly] {
+  background: #f3f4f6; /* slightly muted */
+  color: #6b7280;
+  border: 1px solid #d1d5db;
+  box-shadow: none;
+  opacity: 1;
+}
+.modal-input[readonly]:hover { cursor: pointer; }
+.modal-input[readonly]:focus {
+  outline: none;
+  border-color: #2563eb; /* blue */
+  box-shadow: 0 0 0 4px rgba(37,99,235,0.08);
+  background: #fff;
+}
+</style>
 
 <?php
 // one-time read of created id from query or session flash
@@ -308,9 +387,9 @@ if (isset($_GET['created'])) {
                     </div>
 
                     <div>
-                        <label>Director</label>
-                        <!-- visible but disabled so user cannot change -->
-                        <input type="text" id="directorDisplay" value="Unassigned" disabled class="modal-input">
+                          <label>Director</label>
+                          <!-- visible but readonly so user sees but cannot change; focusable for clarity -->
+                          <input type="text" id="directorDisplay" value="Unassigned" readonly tabindex="0" class="modal-input">
                         <!-- hidden input to submit director value -->
                         <input type="hidden" name="director_name" id="directorNameField" value="">
                     </div>
@@ -323,10 +402,10 @@ if (isset($_GET['created'])) {
                     </div>
 
                     <div>
-                        <label>Manager</label>
-                        <input type="text" id="managerDisplay" value="Unassigned" disabled class="modal-input">
-                        <input type="hidden" name="manager_name" id="managerNameField" value="">
-                        <input type="hidden" name="manager_id" id="managerIdField" value="">
+                      <label>Manager</label>
+                      <input type="text" id="managerDisplay" value="Unassigned" readonly tabindex="0" class="modal-input">
+                      <input type="hidden" name="manager_name" id="managerNameField" value="">
+                      <input type="hidden" name="manager_id" id="managerIdField" value="">
                     </div>
                 </div>
 
@@ -434,8 +513,8 @@ if (isset($_GET['created'])) {
                     </div>
 
                     <div>
-                        <label>Hiring Deadline</label>
-                        <input type="date" name="hiring_deadline" class="modal-input" required>
+                      <label>Hiring Deadline</label>
+                      <input type="date" id="hiring_deadline" name="hiring_deadline" class="modal-input" required min="<?= htmlspecialchars($minHiringDeadline) ?>">
                     </div>
                 </div>
 
@@ -659,7 +738,7 @@ if (isset($_GET['created'])) {
       <select id="fStatus">
         <option value="">All status</option>
         <?php
-          $st = $conn->query("SELECT status_id,status_name FROM positions_status ORDER BY status_id");
+          $st = $conn->query("SELECT status_id,status_name FROM positions_status ORDER BY COALESCE(sort_order,status_id) ASC, status_name ASC");
           if ($st) {
             while ($s = $st->fetch_assoc()) {
               echo '<option value="'.(int)$s['status_id'].'">'.htmlspecialchars($s['status_name']).'</option>';
@@ -699,16 +778,7 @@ if (isset($_GET['created'])) {
 
   <!-- Grid (shows empty state when there are no positions) -->
   <div id="positionsGrid" class="positions-grid">
-    <?php if (empty($positions_all)): ?>
-      <div class="empty-state">
-        <div class="title">No positions found</div>
-        <div class="desc">Use the Create Button to initiate a Position.</div>
-        <div class="desc debug">Debug: positions query returned <?php echo (int)$positions_count; ?> rows.</div>
-        <?php if (in_array('positions_create', $_SESSION['user']['access_keys'] ?? []) || in_array($user['role'] ?? '', ['hr','manager'])): ?>
-          <button class="btn-orange">+ Create Position</button>
-        <?php endif; ?>
-      </div>
-    <?php else: ?>
+    <?php if (!empty($positions_all)): ?>
       <?php foreach ($positions_all as $r):
           $statusId = isset($r['status_id']) ? (int)$r['status_id'] : 0;
           $statusName = $status_map[$statusId]['name'] ?? ($r['status_name'] ?? 'Unknown');
@@ -865,6 +935,107 @@ if (isset($_GET['created'])) {
     applyFilters();
   });
   window.applyPositionsFilters = applyFilters;
+
+  // --- Dynamic dependent options ---
+  // Build maps from existing position cards so we can filter Status and Title lists
+  try {
+    // add pointer cursor for interactive selects
+    ['fTitle','fStatus','fDept','fTeam'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.cursor = 'pointer';
+    });
+
+    const cards = Array.from(document.querySelectorAll('.position-ticket'));
+    const titlesByDept = {}; // dept -> Set(titles)
+    const titlesByDeptTeam = {}; // dept -> team -> Set(titles)
+    const statusesByDept = {}; // dept -> Set(statusId)
+    const statusesByDeptTeam = {}; // dept -> team -> Set(statusId)
+    const statusesAll = new Set();
+    const allTitles = new Set();
+
+    cards.forEach(card => {
+      const dept = (card.dataset.department || '').toLowerCase();
+      const team = (card.dataset.team || '').toLowerCase();
+      // prefer the visible title text for proper casing; fall back to dataset
+      const visibleTitleEl = card.querySelector('.pos-title');
+      const titleRaw = (visibleTitleEl && visibleTitleEl.textContent) ? visibleTitleEl.textContent.trim() : (card.dataset.title || '').toString();
+      const status = String(card.dataset.statusId || '');
+      allTitles.add(titleRaw);
+
+      if (!titlesByDept[dept]) titlesByDept[dept] = new Set();
+      titlesByDept[dept].add(titleRaw);
+
+      if (team) {
+        if (!titlesByDeptTeam[dept]) titlesByDeptTeam[dept] = {};
+        if (!titlesByDeptTeam[dept][team]) titlesByDeptTeam[dept][team] = new Set();
+        titlesByDeptTeam[dept][team].add(titleRaw);
+      }
+
+      if (!statusesByDept[dept]) statusesByDept[dept] = new Set();
+      if (status) statusesByDept[dept].add(status);
+
+      if (team) {
+        if (!statusesByDeptTeam[dept]) statusesByDeptTeam[dept] = {};
+        if (!statusesByDeptTeam[dept][team]) statusesByDeptTeam[dept][team] = new Set();
+        if (status) statusesByDeptTeam[dept][team].add(status);
+      }
+
+      if (status) statusesAll.add(status);
+    });
+
+    const fStatusEl = document.getElementById('fStatus');
+    const fTitleEl = document.getElementById('fTitle');
+    const fDeptEl = document.getElementById('fDept');
+    const fTeamEl = document.getElementById('fTeam');
+
+    function setOptionsForStatus(deptVal, teamVal){
+      // Intentionally left blank: status dropdown is populated server-side
+      // from the flows setup. Do not dynamically overwrite it here because
+      // we want the full canonical list available at all times.
+      return;
+    }
+
+    function setOptionsForTitle(deptVal, teamVal){
+      const prev = fTitleEl ? fTitleEl.value : '';
+      if (!fTitleEl) return;
+      const allOpt = fTitleEl.querySelector('option[value=""]');
+      fTitleEl.innerHTML = '';
+      if (allOpt) fTitleEl.appendChild(allOpt);
+
+      const titles = new Set();
+      if (teamVal && titlesByDeptTeam[deptVal] && titlesByDeptTeam[deptVal][teamVal]) {
+        titlesByDeptTeam[deptVal][teamVal].forEach(t=>titles.add(t));
+      } else if (deptVal && titlesByDept[deptVal]) {
+        titlesByDept[deptVal].forEach(t=>titles.add(t));
+      } else {
+        allTitles.forEach(t=>titles.add(t));
+      }
+      const arr = Array.from(titles).filter(Boolean).sort((a,b)=> a.localeCompare(b));
+      arr.forEach(t => {
+        const o = document.createElement('option'); o.value = String(t).toLowerCase(); o.textContent = t; fTitleEl.appendChild(o);
+      });
+      try { fTitleEl.value = prev; } catch(e){}
+    }
+
+    function rebuildDependentOptions(){
+      const deptVal = (fDeptEl && fDeptEl.value) ? String(fDeptEl.value).toLowerCase() : '';
+      const teamVal = (fTeamEl && fTeamEl.value) ? String(fTeamEl.value).toLowerCase() : '';
+      setOptionsForStatus(deptVal, teamVal);
+      setOptionsForTitle(deptVal, teamVal);
+    }
+
+    // wire to changes so selecting dept/team updates status and title lists immediately
+    if (fDeptEl) fDeptEl.addEventListener('change', rebuildDependentOptions);
+    if (fTeamEl) fTeamEl.addEventListener('change', rebuildDependentOptions);
+
+    // initial build
+    rebuildDependentOptions();
+  } catch (err) {
+    console.warn('Dependent filter build failed', err);
+  }
+  
+  // expose for other scripts (prefill) to call after they set selects
+  try { window.rebuildPositionsDependentOptions = function(){ try { if (typeof rebuildDependentOptions === 'function') rebuildDependentOptions(); } catch(e){} }; } catch(e){}
 })();
 
 // Prefill filters from query params (so dashboard links can open view_positions with filters)
@@ -888,9 +1059,13 @@ if (isset($_GET['created'])) {
       // For department/team selects values in view_positions are lowercase; preserve as provided
       try { el.value = v; changed = true; } catch(e){}
     });
-    if (changed && typeof window.applyPositionsFilters === 'function') {
-      // small timeout to allow other scripts to initialize
-      setTimeout(()=>{ try { window.applyPositionsFilters(); } catch(e){} }, 60);
+    if (changed) {
+      // allow dependent option rebuild (so status/title lists reflect prefilled dept/team)
+      try { if (typeof window.rebuildPositionsDependentOptions === 'function') window.rebuildPositionsDependentOptions(); } catch(e){}
+      if (typeof window.applyPositionsFilters === 'function') {
+        // small timeout to allow other scripts to initialize
+        setTimeout(()=>{ try { window.applyPositionsFilters(); } catch(e){} }, 60);
+      }
     }
   }catch(e){}
 })();
@@ -1048,6 +1223,27 @@ if (isset($_GET['created'])) {
   // Teams map injected earlier
   const teamsByDept = window.teamsByDept || {};
 
+  // make readonly director/manager fields focus on click for clearer UX
+  try {
+    document.querySelectorAll('#directorDisplay,#managerDisplay').forEach(function(el){
+      if (!el) return;
+      el.addEventListener('click', function(){ try { this.focus(); } catch(e){} });
+      // allow Tab navigation but prevent typing
+      el.addEventListener('keydown', function(e){ if (e.key !== 'Tab' && e.key !== 'Shift') e.preventDefault(); });
+    });
+    // ensure hiring_deadline min is set (defensive) in case server-side didn't render
+    try {
+      const hd = document.getElementById('hiring_deadline');
+      if (hd && !hd.getAttribute('min')) {
+        const d = new Date(); d.setDate(d.getDate() + 1);
+        const mm = String(d.getMonth()+1).padStart(2,'0');
+        const dd = String(d.getDate()).padStart(2,'0');
+        const yyyy = d.getFullYear();
+        hd.setAttribute('min', yyyy + '-' + mm + '-' + dd);
+      }
+    } catch(e){}
+  } catch(e){}
+
   form.addEventListener('submit', async function(ev){
     // commit any pending text to tags first (prevents Enter from causing submit with empty requirements)
     try { if (window.__commitReqInput) window.__commitReqInput(); } catch(e){}
@@ -1100,6 +1296,23 @@ if (isset($_GET['created'])) {
         markInvalid(el);
         if (!firstInvalid.el) firstInvalid.el = el;
       }
+    }
+    // ensure hiring_deadline is not in the past or today (min enforced)
+    const hiringEl = field('hiring_deadline');
+    if (hiringEl) {
+      try {
+        // if browser supports min attribute, it will already block selection; add defensive check
+        const min = hiringEl.getAttribute('min');
+        if (min) {
+          const sel = new Date((hiringEl.value || '') + 'T00:00:00');
+          const minD = new Date(min + 'T00:00:00');
+          if (hiringEl.value && !isNaN(sel) && sel < minD) {
+            missing.push(labels['hiring_deadline'] || 'Hiring Deadline');
+            markInvalid(hiringEl);
+            if (!firstInvalid.el) firstInvalid.el = hiringEl;
+          }
+        }
+      } catch(e) { /* ignore */ }
     }
 
     // non-empty checks
@@ -1171,13 +1384,19 @@ if (isset($_GET['created'])) {
       if (e.target && e.target.closest && e.target.closest('.modal-close-x')) closeViewer();
     });
     document.addEventListener('keydown', function(e){
-      if (e.key === 'Escape' && ov.classList.contains('show')) closeViewer();
+      try {
+        // If this viewer was opened from the applicant modal, ignore Escape
+        if (e.key === 'Escape' && ov.classList.contains('show')) {
+          if (window.__openedFromApplicant) return; // do not close when opened from applicant
+          closeViewer();
+        }
+      } catch (err) { console.warn('posViewer ESC handler error', err); }
     });
     return ov;
   }
 
   function openViewer(){ const ov = ensureViewer(); ov.classList.add('show'); ov.setAttribute('aria-hidden','false'); ov.style.display='flex'; }
-  function closeViewer(){ const ov = document.getElementById('posViewerModal'); if (!ov) return; ov.classList.remove('show'); ov.setAttribute('aria-hidden','true'); ov.style.display='none'; const c = ov.querySelector('#posViewerContent'); if (c) c.innerHTML=''; }
+  function closeViewer(){ const ov = document.getElementById('posViewerModal'); if (!ov) return; ov.classList.remove('show'); ov.setAttribute('aria-hidden','true'); ov.style.display='none'; const c = ov.querySelector('#posViewerContent'); if (c) c.innerHTML=''; try{ window.__openedFromApplicant = false; }catch(e){} }
   window.closePositionViewer = closeViewer; // allow fragment to close modal after actions
 
   // Safely execute scripts inside a container (fixes "appendChild Unexpected token 'if'")
@@ -1185,8 +1404,9 @@ if (isset($_GET['created'])) {
     const scripts = container.querySelectorAll('script');
     scripts.forEach(old => {
       const ns = document.createElement('script');
-      // copy type and src
+      // copy type and src; detect module-like syntax (await/import/export) and use module type when present
       ns.type = old.type || 'text/javascript';
+      try{ const raw = old.textContent || ''; if (/\bawait\b|\bimport\b|\bexport\b/.test(raw)) ns.type = 'module'; }catch(e){}
       if (old.src) {
         ns.src = old.src;
         ns.async = false;
@@ -1331,13 +1551,22 @@ window.onPositionUpdateSuccess = function(detail, opts){
       try { card.style.borderLeftColor = color; } catch(_){}
     }
 
-    // Close viewer and clear content
-    try { if (window.closePositionViewer) window.closePositionViewer(); } catch(_){}
-    const ov = document.getElementById('posViewerModal');
-    if (ov) {
-      const content = ov.querySelector('#posViewerContent');
-      if (content) content.innerHTML = '';
-    }
+    // Refresh the position viewer if open so it reflects the latest data
+    try {
+      // prefer the provided helper to fetch and render the latest fragment
+      if (typeof openPositionEditor === 'function') {
+        // small delay can help ensure DB commit propagation in some environments
+        setTimeout(function(){ try { openPositionEditor(id); } catch(e) { /* ignore */ } }, 60);
+      } else {
+        // fallback: close and clear
+        if (window.closePositionViewer) try { window.closePositionViewer(); } catch(_){}
+        const ov = document.getElementById('posViewerModal');
+        if (ov) {
+          const content = ov.querySelector('#posViewerContent');
+          if (content) content.innerHTML = '';
+        }
+      }
+    } catch(e) { /* ignore */ }
 
     // show notify if requested (default true)
     const doNotify = (typeof opts.notify === 'undefined') ? true : !!opts.notify;
@@ -1501,5 +1730,43 @@ window.addEventListener('position:updated', function(e){
     e.stopPropagation();
     handleModalStatusClick(btn);
   }, true);
-})();
-</script>
+  })();
+
+  // Auto-open helper: if the page loaded with ?openPosition=ID, open that position modal once
+  try {
+    (function(){
+      const params = new URLSearchParams(window.location.search || '');
+      if (!params.has('openPosition')) return;
+      const pid = params.get('openPosition');
+      if (!pid) return;
+
+      // Avoid repeated attempts/redirect loops: store a processed marker in sessionStorage
+      const processedKey = 'posAutoOpenProcessed';
+      try { const existing = sessionStorage.getItem(processedKey); if (existing === pid) return; } catch(e){}
+
+      // Helper to clear the openPosition param from the URL without reloading
+      function clearOpenPositionParam(){ try { const u = new URL(window.location.href); u.searchParams.delete('openPosition'); history.replaceState(null, document.title, u.pathname + (u.search ? '?' + u.searchParams.toString() : '') + (u.hash||'')); } catch(e){} }
+
+      // Try to open the modal immediately if API is present, otherwise poll for it briefly
+      function tryOpen(){
+        try {
+          if (typeof openPositionEditor === 'function') {
+            sessionStorage.setItem(processedKey, pid);
+            try { openPositionEditor(decodeURIComponent(pid)); } catch(e){ console.warn('openPositionEditor threw', e); }
+            // remove the param so a reload won't re-trigger auto-open
+            clearOpenPositionParam();
+            return true;
+          }
+        } catch(e) { console.warn('tryOpen error', e); }
+        return false;
+      }
+
+      if (!tryOpen()) {
+        // Poll for the function for up to ~2 seconds (10 attempts x 200ms)
+        let attempts = 0;
+        const iv = setInterval(function(){ attempts++; if (tryOpen() || attempts >= 10) { clearInterval(iv); } }, 200);
+      }
+    })();
+  } catch(e) { /* ignore URL parse errors */ }
+
+  </script>

@@ -27,12 +27,11 @@ $status_id = intval($data['status_id']);
 if (!$ids) { echo json_encode(['error'=>'no ids']); exit; }
 
 // prepare placeholders
-$placeholders = implode(',', array_fill(0, count($ids), '?'));
-$sql = "UPDATE positions SET status_id = ?, updated_at = NOW() WHERE id IN ($placeholders)";
-$stmt = $conn->prepare($sql);
+ $placeholders = implode(',', array_fill(0, count($ids), '?'));
+ $sql = "UPDATE positions SET status_id = ?, updated_at = NOW() WHERE id IN ($placeholders)";
+ $stmt = $conn->prepare($sql);
 if (!$stmt) { echo json_encode(['error'=>'prepare_failed','details'=>$conn->error]); exit; }
 
-// bind params: first is status_id then ids...
 $types = str_repeat('i', 1 + count($ids));
 $params = array_merge([$status_id], $ids);
 $stmt->bind_param($types, ...$params);

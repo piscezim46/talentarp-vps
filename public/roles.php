@@ -1,5 +1,12 @@
 <?php
-session_start();
+// Start session only if not already active
+if (function_exists('session_status')) {
+  if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+  }
+} else {
+  @session_start();
+}
 require_once '../includes/db.php';
 require_once __DIR__ . '/../includes/access.php';
 
@@ -29,6 +36,7 @@ $rs = $conn->query($sql);
 if ($rs) { while ($r = $rs->fetch_assoc()) $roles[] = $r; $rs->free(); }
 
 ?>
+<?php $pageTitle = 'Roles'; ?>
 <?php if (file_exists(__DIR__ . '/../includes/header.php')) include __DIR__ . '/../includes/header.php'; ?>
 <?php if (file_exists(__DIR__ . '/../includes/navbar.php')) include __DIR__ . '/../includes/navbar.php'; ?>
 <link rel="stylesheet" href="styles/layout.css">

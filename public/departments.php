@@ -1,12 +1,18 @@
 <?php
 session_start();
 require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/access.php';
 
 $user = $_SESSION['user'] ?? null;
-if (!$user || !(in_array('departments_view', $user['access_keys'] ?? []) || (isset($user['role']) && $user['role'] === 'admin'))) {
+$roleNorm = isset($user['role']) ? strtolower(trim($user['role'])) : '';
+if (!$user || !(in_array('departments_view', $user['access_keys'] ?? []) || in_array($roleNorm, ['admin','master admin','master_admin','master-admin','masteradmin'], true))) {
     header("Location: index.php");
     exit;
 }
+
+$canCreate = _has_access('departments_create');
+$canEdit   = _has_access('departments_edit');
+$canToggle = _has_access('departments_toggle');
 $activePage = 'departments';
 
 // Fetch departments and teams (grouped)
@@ -43,7 +49,9 @@ if ($res = $conn->query($sql)) {
     $res->free();
 }
 
-$departments_json = json_encode($departments, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP);
+ $departments_json = json_encode($departments, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP);
+
+$pageTitle = 'Departments';
 
 if (file_exists(__DIR__ . '/../includes/header.php')) include __DIR__ . '/../includes/header.php';
 if (file_exists(__DIR__ . '/../includes/navbar.php')) include __DIR__ . '/../includes/navbar.php';
@@ -59,11 +67,17 @@ if (file_exists(__DIR__ . '/../includes/navbar.php')) include __DIR__ . '/../inc
 #departmentsTable th, #departmentsTable td { text-align: center; vertical-align: middle; }
 #departmentsTable th.col-teams, #departmentsTable td.col-teams { text-align: left; }
 #departmentsTable td.col-teams .team-list-item { text-align: left; }
+/* Make the table container scrollable when there are many rows */
+#departmentsWrap { max-height: 100vh; overflow: auto; position: relative; -webkit-overflow-scrolling: touch; }
+/* Keep table header visible when scrolling and ensure it stays above rows */
+#departmentsTable thead th { position: sticky; top: 0; background: var(--panel, #fafafa); z-index: 9999; box-shadow: 0 2px 6px rgba(0,0,0,0.04); }
+/* Ensure rows don't escape above the sticky header: give them lower stacking context */
+#departmentsTable tbody tr { position: relative; z-index: 0; }
 </style>
 <main class="content-area">
     <div class="controls" style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;">
         <h2 class="section-title">Departments</h2>
-        <button id="openDeptBtn" class="btn">New Department</button>
+        <button id="openDeptBtn" class="btn" <?= $canCreate ? '' : 'disabled aria-disabled="true" title="Insufficient permissions"' ?>>New Department</button>
     </div>
         <!-- <div style="margin-left:auto;" class="small-muted">Departments: <span id="deptCount"><?= count($departments) ?></span></div> --!>
 
@@ -139,13 +153,13 @@ if (file_exists(__DIR__ . '/../includes/navbar.php')) include __DIR__ . '/../inc
                     <button type="button" class="btn" onclick="removeTeam(this)" title="Remove">−</button>
                 </div>
             </div>
-            <div style="margin-top:8px;">
-                <button type="button" id="addTeamBtn" class="btn">Add Team</button>
+                <div style="margin-top:8px;">
+                <button type="button" id="addTeamBtn" class="btn" <?= $canEdit ? '' : 'disabled aria-disabled="true" title="Insufficient permissions"' ?>>Add Team</button>
             </div>
 
-            <div class="modal-actions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+                <div class="modal-actions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
                 <button type="button" id="cancelDept" class="btn">Cancel</button>
-                <button type="submit" class="btn">Create Department</button>
+                <button type="submit" class="btn" <?= $canCreate ? '' : 'disabled aria-disabled="true" title="Insufficient permissions"' ?>>Create Department</button>
             </div>
         </form>
     </div>
@@ -172,14 +186,14 @@ if (file_exists(__DIR__ . '/../includes/navbar.php')) include __DIR__ . '/../inc
 
             <label style="margin-top:8px;display:block;">Teams (name & manager)</label>
             <div id="teamsContainerEdit"></div>
-            <div style="margin-top:8px;">
-                <button type="button" id="addTeamBtnEdit" class="btn">Add Team</button>
+                <div style="margin-top:8px;">
+                <button type="button" id="addTeamBtnEdit" class="btn" <?= $canEdit ? '' : 'disabled aria-disabled="true" title="Insufficient permissions"' ?>>Add Team</button>
             </div>
 
-            <div class="modal-actions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+                <div class="modal-actions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
                 <button type="button" id="cancelDeptEdit" class="btn">Cancel</button>
-                <button type="button" id="dept_toggle_active" class="btn" style="min-width:96px;">Toggle Active</button>
-                <button type="submit" id="saveDeptEdit" class="btn btn-orange">Save</button>
+                <button type="button" id="dept_toggle_active" class="btn" style="min-width:96px;" <?= $canToggle ? '' : 'disabled aria-disabled="true" title="Insufficient permissions"' ?>>Toggle Active</button>
+                <button type="submit" id="saveDeptEdit" class="btn btn-orange" <?= $canEdit ? '' : 'disabled aria-disabled="true" title="Insufficient permissions"' ?>>Save</button>
             </div>
         </form>
     </div>
@@ -188,6 +202,14 @@ if (file_exists(__DIR__ . '/../includes/navbar.php')) include __DIR__ . '/../inc
 <script>
 // departments modal & create logic
 (function(){
+    // permission flags exposed from server
+    const DEPT_PERMS = {
+        create: <?= $canCreate ? 'true' : 'false' ?>,
+        edit:   <?= $canEdit ? 'true' : 'false' ?>,
+        toggle: <?= $canToggle ? 'true' : 'false' ?>
+    };
+
+    // prevent opening create/edit flows when permission missing (extra guard)
     const deptModal = document.getElementById('deptModal');
     const openDeptBtn = document.getElementById('openDeptBtn');
     const cancelDept = document.getElementById('cancelDept');
@@ -212,12 +234,12 @@ if (file_exists(__DIR__ . '/../includes/navbar.php')) include __DIR__ . '/../inc
     function openEditModal(){ deptEditMsg.textContent=''; deptEditModal.style.display = 'flex'; }
     function closeEditModal(){ deptEditModal.style.display = 'none'; }
 
-    openDeptBtn.addEventListener('click', openModal);
+    openDeptBtn.addEventListener('click', function(){ if (!DEPT_PERMS.create) { try{ if (window.Notify && typeof Notify.push === 'function') Notify.push({ from: 'Departments', message: 'Insufficient permissions to create department', color: '#dc2626' }); }catch(e){} return; } openModal(); });
     cancelDept.addEventListener('click', closeModal);
     // wire close button in Create modal (top-right X)
     const createClose = deptModal && deptModal.querySelector('.modal-close'); if (createClose) createClose.addEventListener('click', closeModal);
 
-    addTeamBtn.addEventListener('click', function(){
+    addTeamBtn.addEventListener('click', function(){ if (!DEPT_PERMS.edit) { try{ if (window.Notify && typeof Notify.push === 'function') Notify.push({ from: 'Departments', message: 'Insufficient permissions', color: '#dc2626' }); }catch(e){} return; }
         const row = document.createElement('div');
         row.className = 'team-row';
         row.innerHTML = '<input name="team_name[]" class="team-name team-input" placeholder="Team name" required><input name="manager_name[]" class="team-manager team-input" placeholder="Manager name" required><button type="button" class="btn" onclick="removeTeam(this)" title="Remove">−</button>';
@@ -225,7 +247,7 @@ if (file_exists(__DIR__ . '/../includes/navbar.php')) include __DIR__ . '/../inc
     });
 
     // edit modal add team
-    if (addTeamBtnEdit) addTeamBtnEdit.addEventListener('click', function(){
+    if (addTeamBtnEdit) addTeamBtnEdit.addEventListener('click', function(){ if (!DEPT_PERMS.edit) { try{ if (window.Notify && typeof Notify.push === 'function') Notify.push({ from: 'Departments', message: 'Insufficient permissions', color: '#dc2626' }); }catch(e){} return; }
         const row = document.createElement('div');
         row.className = 'team-row';
         // include empty team_id[] for new teams so backend can handle create vs update
@@ -240,6 +262,7 @@ if (file_exists(__DIR__ . '/../includes/navbar.php')) include __DIR__ . '/../inc
     window.removeTeam = function(btn){ const row = btn.closest('.team-row'); if (row) row.remove(); };
 
     deptForm.addEventListener('submit', async function(e){
+        if (!DEPT_PERMS.create) { deptMsg.textContent = 'Insufficient permissions to create department.'; return; }
         e.preventDefault();
         deptMsg.textContent = 'Creating department...';
         const formData = new FormData(deptForm);
@@ -365,6 +388,7 @@ if (file_exists(__DIR__ . '/../includes/navbar.php')) include __DIR__ . '/../inc
     // save edit
     if (deptEditForm) {
         deptEditForm.addEventListener('submit', async function(ev){
+            if (!DEPT_PERMS.edit) { deptEditMsg.textContent = 'Insufficient permissions to save changes.'; return; }
             ev.preventDefault();
             deptEditMsg.textContent = 'Saving...';
             const fd = new FormData(deptEditForm);
