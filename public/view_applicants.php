@@ -8,6 +8,7 @@ if (function_exists('session_status')) {
   @session_start();
 }
 require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/access.php';
 
 // page variables required by header.php
 $activePage = 'applicants';
@@ -32,7 +33,7 @@ echo '<script>(function(){ try{ var found = Array.from(document.styleSheets||[])
 $positions = [];
 // Load positions with department filtering when applicable
 try {
-  $sqlPos = "SELECT p.id, p.title FROM positions p ORDER BY p.title";
+  $sqlPos = "SELECT p.id, p.title FROM positions p" . _scope_clause('positions','p', true) . " ORDER BY p.title";
 
   $stmtPos = $conn->prepare($sqlPos);
   if ($stmtPos) {
@@ -45,14 +46,14 @@ try {
 
 // Fetch departments (only active)
 $departments = [];
-if ($res = $conn->query("SELECT department_id AS id, department_name AS name, director_name FROM departments WHERE active = 1 ORDER BY department_name")) {
+if ($res = $conn->query("SELECT d.department_id AS id, d.department_name AS name, d.director_name FROM departments d WHERE d.active = 1" . _scope_clause('departments','d', false) . " ORDER BY d.department_name")) {
   while ($r = $res->fetch_assoc()) $departments[(int)$r['id']] = $r;
   $res->free();
 }
 
 // Fetch teams grouped by department (only active)
 $teams_by_dept = [];
-if ($res = $conn->query("SELECT team_id AS id, team_name AS name, department_id, manager_name FROM teams WHERE active = 1 ORDER BY team_name")) {
+if ($res = $conn->query("SELECT t.team_id AS id, t.team_name AS name, t.department_id, t.manager_name FROM teams t WHERE t.active = 1" . _scope_clause('teams','t', false) . " ORDER BY t.team_name")) {
   while ($r = $res->fetch_assoc()) {
     $deptId = (int)$r['department_id'];
     if (!isset($teams_by_dept[$deptId])) $teams_by_dept[$deptId] = [];
@@ -64,7 +65,7 @@ if ($res = $conn->query("SELECT team_id AS id, team_name AS name, department_id,
 // Fetch applicants for list — restrict by position.department when applicable
 $applicants = [];
 try {
-    $sqlApp = "SELECT a.applicant_id, a.full_name, a.email, a.phone, a.resume_file, a.created_at FROM applicants a LEFT JOIN positions p ON a.position_id = p.id ORDER BY a.created_at DESC";
+    $sqlApp = "SELECT a.applicant_id, a.full_name, a.email, a.phone, a.resume_file, a.created_at FROM applicants a LEFT JOIN positions p ON a.position_id = p.id" . _scope_clause('applicants','a', true) . " ORDER BY a.created_at DESC";
 
     $stmtApp = $conn->prepare($sqlApp);
     if ($stmtApp) {

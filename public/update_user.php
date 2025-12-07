@@ -42,6 +42,8 @@ $department_id = isset($input['department_id']) ? intval($input['department_id']
 $team_id = isset($input['team_id']) ? intval($input['team_id']) : 0;
 $manager_name = trim($input['manager_name'] ?? ''); // ignored if present
 $director_name = trim($input['director_name'] ?? ''); // ignored if present
+$password_expiration_days = isset($input['password_expiration_days']) ? intval($input['password_expiration_days']) : null;
+$scope = isset($input['scope']) ? trim($input['scope']) : null;
 
 if ($name === '' || $email === '' || ($role_id === null && $role === '')) {
     http_response_code(400);
@@ -104,8 +106,8 @@ if ($user_name !== '') {
 }
 
 // Some schemas keep manager/director names on departments/teams. Update only user fields present in users table.
-// update users.role_id instead of users.role; include user_name
-$stmt = $conn->prepare("UPDATE users SET name = ?, user_name = ?, email = ?, role_id = ?, department_id = ?, team_id = ? WHERE id = ?");
+// update users.role_id instead of users.role; include user_name and optional password_expiration_days and scope
+$stmt = $conn->prepare("UPDATE users SET name = ?, user_name = ?, email = ?, role_id = ?, department_id = ?, team_id = ?, password_expiration_days = ?, scope = ? WHERE id = ?");
 if (!$stmt) {
     http_response_code(500);
     echo json_encode(['error' => 'Prepare failed']);
@@ -113,7 +115,49 @@ if (!$stmt) {
 }
 // bind: name(s), email(s), role_id(i), department_id(i), team_id(i), id(i)
 $role_id_param = $role_id === null ? null : $role_id;
-$stmt->bind_param('sssiiii', $name, $user_name, $email, $role_id_param, $department_id, $team_id, $id);
+$pwdExpParam = $password_expiration_days;
+// validate scope: allow only 'local' or 'global'; preserve existing when not provided
+$scopeParam = null;
+if ($scope !== null) {
+    $s = strtolower($scope);
+    if ($s === 'local' || $s === 'global') $scopeParam = $s; else $scopeParam = 'local';
+}
+if ($pwdExpParam === null) {
+    // preserve existing value when not provided
+    $g = $conn->prepare("SELECT password_expiration_days FROM users WHERE id = ? LIMIT 1");
+    if ($g) {
+        $g->bind_param('i', $id);
+        $g->execute();
+        $gres = $g->get_result();
+        if ($gres && ($grow = $gres->fetch_assoc())) {
+            $pwdExpParam = intval($grow['password_expiration_days']);
+        } else {
+            $pwdExpParam = 90;
+        }
+        $g->close();
+    } else {
+        $pwdExpParam = 90;
+    }
+}
+$scopePreserve = $scopeParam;
+if ($scopePreserve === null) {
+    // fetch existing scope to preserve
+    $g2 = $conn->prepare("SELECT scope FROM users WHERE id = ? LIMIT 1");
+    if ($g2) {
+        $g2->bind_param('i', $id);
+        $g2->execute();
+        $gres2 = $g2->get_result();
+        if ($gres2 && ($grow2 = $gres2->fetch_assoc())) {
+            $scopePreserve = $grow2['scope'] ?? 'local';
+        } else {
+            $scopePreserve = 'local';
+        }
+        $g2->close();
+    } else {
+        $scopePreserve = 'local';
+    }
+}
+$stmt->bind_param('sssiiiisi', $name, $user_name, $email, $role_id_param, $department_id, $team_id, $pwdExpParam, $scopePreserve, $id);
 if (!$stmt->execute()) {
     http_response_code(500);
     echo json_encode(['error' => 'Update failed: ' . $stmt->error]);
@@ -134,6 +178,24 @@ if (($role_id_param !== null) && ($resp_role_name === '' || $resp_role_name === 
     }
 }
 
-echo json_encode(['success' => true, 'id' => $id, 'user_name' => $user_name, 'role_id' => $role_id_param, 'role' => $resp_role_name]);
+echo json_encode(['success' => true, 'id' => $id, 'user_name' => $user_name, 'role_id' => $role_id_param, 'role' => $resp_role_name, 'scope' => $scopePreserve]);
+// If the current session user updated their own scope/department, refresh session values
+if (isset($_SESSION['user']) && isset($_SESSION['user']['id']) && intval($_SESSION['user']['id']) === intval($id)) {
+    try {
+        $_SESSION['user']['scope'] = $scopePreserve;
+        $_SESSION['user']['department_id'] = $department_id;
+        // keep top-level department name in sync for helpers
+        if (!empty($department_id)) {
+            $dstmt = $conn->prepare('SELECT department_name FROM departments WHERE department_id = ? LIMIT 1');
+            if ($dstmt) {
+                $dstmt->bind_param('i', $department_id);
+                $dstmt->execute();
+                $dres = $dstmt->get_result();
+                if ($dres && ($drow = $dres->fetch_assoc())) $_SESSION['user']['department_name'] = $drow['department_name'];
+                $dstmt->close();
+            }
+        }
+    } catch (Throwable $_) { /* ignore session refresh failures */ }
+}
 exit;
 ?>

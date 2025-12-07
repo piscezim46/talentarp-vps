@@ -110,6 +110,15 @@ if (!empty($_SESSION['user']['force_password_reset']) && !in_array($currentScrip
         </div>
     </div>
 </div>
+<script>
+    (function(){
+        try {
+            window.USER_SCOPE = <?= json_encode($_SESSION['user']['scope'] ?? 'local') ?>;
+            window.USER_DEPARTMENT_ID = <?= json_encode($_SESSION['user']['department_id'] ?? null) ?>;
+            window.USER_DEPARTMENT_NAME = <?= json_encode($_SESSION['user']['department_name'] ?? '') ?>;
+        } catch(e) { /* ignore */ }
+    })();
+</script>
     <style>
     .topbar-avatar { transition: transform .08s ease, box-shadow .12s ease, background .12s ease; cursor: pointer; }
     .topbar-avatar:hover { transform: translateY(-1px) scale(1.03); box-shadow: 0 6px 18px rgba(12,18,24,0.08); }

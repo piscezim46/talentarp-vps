@@ -3,6 +3,8 @@
 if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 require_once __DIR__ . '/../includes/db.php';
 if (file_exists(__DIR__ . '/../includes/user_utils.php')) require_once __DIR__ . '/../includes/user_utils.php';
+// access helpers (scope + permissions)
+require_once __DIR__ . '/../includes/access.php';
 
 // Collect PHP warnings/notices so we can surface them as Notify toasts
 $page_errors = [];
@@ -31,8 +33,8 @@ if (!isset($_SESSION['user'])) {
 
 $user = $_SESSION['user'];
 // authorization: allow if user has users_view access or is admin role (backwards-compatible)
-$roleNorm = isset($user['role']) ? strtolower(trim($user['role'])) : '';
-$has_users_access = in_array('users_view', $_SESSION['user']['access_keys'] ?? []) || in_array($roleNorm, ['admin','master admin','master_admin','master-admin','masteradmin'], true);
+// use access helper (legacy roles may be passed to allow old-role names when access_keys missing)
+$has_users_access = _has_access('users_view');
 if (!$has_users_access) {
     header("Location: index.php");
     exit;
@@ -47,7 +49,7 @@ if (function_exists('enforce_password_expiry')) {
 // Fetch users with department/team and manager/director names — sort oldest first
 $users_q = "
 SELECT u.id, u.name, u.user_name, u.email, u.role_id, COALESCE(r.role_name, '') AS role, u.created_at, IFNULL(u.active,0) AS active, IFNULL(u.force_password_reset,0) AS force_password_reset,
-       u.password_changed_at, u.last_login,
+    u.password_changed_at, u.last_login, u.password_expiration_days, COALESCE(u.scope, 'local') AS scope,
        d.department_id AS department_id, COALESCE(d.department_name,'') AS department_name,
        COALESCE(d.director_name,'') AS director_name,
        t.team_id AS team_id, COALESCE(t.team_name,'') AS team_name,
@@ -55,8 +57,9 @@ SELECT u.id, u.name, u.user_name, u.email, u.role_id, COALESCE(r.role_name, '') 
 FROM users u
 LEFT JOIN roles r ON u.role_id = r.role_id
 LEFT JOIN departments d ON u.department_id = d.department_id
-LEFT JOIN teams t ON u.team_id = t.team_id
-ORDER BY u.created_at ASC
+LEFT JOIN teams t ON u.team_id = t.team_id"
+    . _scope_clause('users','u', true) .
+    " ORDER BY u.created_at ASC
 ";
 $users = $conn->query($users_q);
 
@@ -137,7 +140,7 @@ window.addEventListener('error', function(e){
 window.addEventListener('unhandledrejection', function(e){
     try{
         var msg = (e && e.reason && e.reason.message) ? e.reason.message : (e && e.reason ? String(e.reason) : 'Unhandled rejection');
-        if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users JS', message: msg, color: '#dc2626', duration: 15000 });
+    <?php $is_admin = _has_access('users_view'); ?>
     } catch(_){}
     console.error('Unhandled promise rejection on users page:', e);
 });
@@ -190,6 +193,10 @@ window.addEventListener('unhandledrejection', function(e){
             <button type="button" id="bulkForceResetBtn" class="btn" style="background:#f97316;color:#fff;">Bulk Force Password Reset</button>
         <?php endif; ?>
 
+        <?php if (_has_access('users_bulk_force_reset') || _has_access('users_edit')): ?>
+            <button type="button" id="bulkExpiryBtn" class="btn" style="background: #f97316;">Bulk Change Password Expiry</button>
+        <?php endif; ?>
+
         <div style="margin-left:auto;" class="small-muted">Showing <span id="visibleCount">0</span> / <span id="totalCount">0</span></div>
     </div>
 
@@ -206,6 +213,7 @@ window.addEventListener('unhandledrejection', function(e){
                     <th style="width:12%;" class="sortable" data-sort="team">Team <span class="sort-indicator" aria-hidden="true"></span></th>
                     <th style="width:12%;" class="sortable" data-sort="manager">Manager <span class="sort-indicator" aria-hidden="true"></span></th>
                         <th style="width:8%" class="sortable" data-sort="role">Role <span class="sort-indicator" aria-hidden="true"></span></th>
+                        <th style="width:8%" class="sortable" data-sort="scope">Scope <span class="sort-indicator" aria-hidden="true"></span></th>
                         <th style="width:6%" class="sortable" data-sort="active">Active <span class="sort-indicator" aria-hidden="true"></span></th>
                         <th style="width:8%" class="sortable" data-sort="force_password_reset">Force Reset <span class="sort-indicator" aria-hidden="true"></span></th>
                             <th style="width:12%" class="sortable" data-sort="password_changed_at">Password Expiry <span class="sort-indicator" aria-hidden="true"></span></th>
@@ -232,6 +240,8 @@ window.addEventListener('unhandledrejection', function(e){
                             data-manager="<?= htmlspecialchars($row['manager_name'] ?? '') ?>"
                             data-created="<?= htmlspecialchars($row['created_at'] ?? '') ?>"
                             data-password-changed-at="<?= htmlspecialchars($row['password_changed_at'] ?? '') ?>"
+                            data-password-expiry-days="<?= htmlspecialchars($row['password_expiration_days'] ?? 90) ?>"
+                            data-scope="<?= htmlspecialchars($row['scope'] ?? 'local') ?>"
                             data-last-login="<?= htmlspecialchars($row['last_login'] ?? '') ?>">
                         <td><?= htmlspecialchars($row['id']) ?></td>
                         <td class="users-col-name"><?= htmlspecialchars($row['name']) ?></td>
@@ -242,6 +252,7 @@ window.addEventListener('unhandledrejection', function(e){
                         <td class="users-col-team"><?= htmlspecialchars($row['team_name'] ?? '') ?></td>
                         <td class="users-col-manager"><?= htmlspecialchars($row['manager_name'] ?? '') ?></td>
                         <td><?= htmlspecialchars(ucfirst($row['role'])) ?></td>
+                        <td class="users-col-scope"><?= htmlspecialchars(ucfirst($row['scope'] ?? 'local')) ?></td>
                             <td class="users-col-active">
                                 <?= (int)$row['active'] === 1
                                     ? '<span class="active-badge">1</span>'
@@ -268,7 +279,8 @@ window.addEventListener('unhandledrejection', function(e){
                                                     echo '<span class="heat-dot ' . $cls . '" title="' . $title . '"></span>';
                                                 }
 
-                                                // Password expiry text (based on password_changed_at)
+                                                // Password expiry text (based on password_changed_at and per-user expiry days)
+                                                $expDays = isset($row['password_expiration_days']) && $row['password_expiration_days'] > 0 ? intval($row['password_expiration_days']) : 90;
                                                 if (!empty($row['password_changed_at'])) {
                                                     $ts = strtotime($row['password_changed_at']);
                                                     if ($ts === false) {
@@ -277,20 +289,19 @@ window.addEventListener('unhandledrejection', function(e){
                                                         // compute elapsed full days; protect against future timestamps
                                                         $now = time();
                                                         $elapsed = (int) floor(($now - $ts) / 86400);
-                                                        if ($elapsed < 0) $elapsed = 0; // avoid negative elapsed when clocks/timezones differ
-                                                        $left = 30 - $elapsed;
+                                                        if ($elapsed < 0) $elapsed = 0;
+                                                        $left = $expDays - $elapsed;
                                                         if ($left > 0) {
-                                                            // show remaining days (clamped to 30..0)
-                                                            $left = $left > 30 ? 30 : $left;
+                                                            $left = $left > $expDays ? $expDays : $left;
                                                             $title = htmlspecialchars($row['password_changed_at'] . ' (elapsed: ' . $elapsed . ' days)');
-                                                            echo ' <span class="small-muted" title="' . $title . '">' . htmlspecialchars($left . ' days') . '</span>';
+                                                            echo ' <span class="small-muted" title="' . $title . '">' . htmlspecialchars($left . ' days') . ' (' . $expDays . 'd)</span>';
                                                         } else {
                                                             $title = htmlspecialchars($row['password_changed_at'] . ' (elapsed: ' . $elapsed . ' days)');
-                                                            echo ' <span class="expired-text" title="' . $title . '">Expired</span>';
+                                                            echo ' <span class="expired-text" title="' . $title . '">Expired (' . $expDays . 'd)</span>';
                                                         }
                                                     }
                                                 } else {
-                                                    echo ' <span class="small-muted">Never</span>';
+                                                    echo ' <span class="small-muted">Never (' . $expDays . 'd)</span>';
                                                 }
                                             ?>
                                         </td>
@@ -352,6 +363,8 @@ window.addEventListener('unhandledrejection', function(e){
                     <option value="">-- Select department first --</option>
                 </select>
 
+                
+
                 <label for="u_manager_display">Manager</label>
                 <input id="u_manager_display" type="text" disabled aria-disabled="true" value="Unassigned">
                 <input type="hidden" name="manager_name" id="u_manager_name" value="">
@@ -367,12 +380,21 @@ window.addEventListener('unhandledrejection', function(e){
                 <label for="u_password">Password</label>
                 <input id="u_password" name="password" type="password" required>
 
+                <label for="u_password_expiry">Password Expiration Days</label>
+                <input id="u_password_expiry" name="password_expiration_days" type="number" min="1" value="90" class="modal-input">
+
+                <label for="u_scope">Data Access Scope</label>
+                <select id="u_scope" name="scope" class="modal-input">
+                    <option value="local">Local (department)</option>
+                    <option value="global">Global (all departments)</option>
+                </select>
+
                 <label for="u_send_invite" style="display:flex;align-items:center;gap:10px;margin-top:8px;" hidden>
                     <span hidden>Send invitation email</span>
-                    <input id="u_send_invite" name="send_invite" type="checkbox" checked aria-checked="true" hidden />
+                    <input id="u_send_invite" name="send_invite" type="checkbox" checked aria-checked="false" hidden />
                 </label>
 
-                <div class="modal-actions">
+                <div style="    display: flex;gap: 8px; justify-content: flex-end;margin-top: 12px;">
                     <button type="button" id="cancelCreate" class="btn">Cancel</button>
                     <button type="submit" class="btn">Create</button>
                 </div>
@@ -390,7 +412,29 @@ window.addEventListener('unhandledrejection', function(e){
             <div id="bulkForceBody" style="margin-top:8px;color:#111;">Are you sure?</div>
             <div id="bulkForceActions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
                 <button id="bulkCancelBtn" type="button" class="btn">Cancel</button>
-                <button id="bulkConfirmBtn" type="button" class="btn btn-orange">Confirm</button>
+                <button id="bulkConfirmBtn" type="button" class="btn">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk Change Password Expiry Modal -->
+    <div id="bulkExpiryModal" class="modal-overlay" style="display:none;">
+        <div class="modal-card" role="dialog" aria-modal="true" style="max-width:520px;padding:18px;">
+            <div class="modal-header">
+                <h3 id="bulkExpiryTitle">Change Password Expiration Days</h3>
+                <button type="button" class="modal-close" aria-label="Close dialog">&times;</button>
+            </div>
+            <div id="bulkExpiryBody" style="margin-top:8px;color:#111;">Set password expiration days for selected users.</div>
+            <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+                <label style="flex:1;display:flex;gap:8px;align-items:center;">
+                    <span style="white-space:nowrap;">Days</span>
+                    <input id="bulkExpiryDays" type="number" min="1" value="90" style="width:100px;padding:6px;border-radius:6px;border:1px solid rgba(15,23,42,0.06);">
+                </label>
+                <div id="bulkExpiryCount" class="small-muted">0 users</div>
+            </div>
+            <div id="bulkExpiryActions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+                <button id="bulkExpiryCancelBtn" type="button" class="btn">Cancel</button>
+                <button id="bulkExpiryConfirmBtn" type="button" class="btn btn-blue">Apply</button>
             </div>
         </div>
     </div>
@@ -411,8 +455,12 @@ function debounce(fn, wait) {
         timer = setTimeout(function() { timer = null; fn.apply(ctx, args); }, wait);
     };
 }
-<?php $roleNorm = isset($user['role']) ? strtolower(trim($user['role'])) : ''; $is_admin = in_array('users_view', $_SESSION['user']['access_keys'] ?? []) || in_array($roleNorm, ['admin','master admin','master_admin','master-admin','masteradmin'], true); ?>
+<?php $is_admin = _has_access('users_view'); ?>
 const IS_ADMIN = <?= json_encode($is_admin) ?>;
+<?php $can_edit = _has_access('users_edit'); ?>
+const CAN_EDIT = <?= json_encode($can_edit) ?>;
+<?php $current_user_id = isset($_SESSION['user']['id']) ? (int)$_SESSION['user']['id'] : 0; ?>
+const CURRENT_USER_ID = <?= json_encode($current_user_id) ?>;
 document.addEventListener('DOMContentLoaded', function(){
     const openBtn = document.getElementById('openCreateBtn');
     const createModal = document.getElementById('createModal');
@@ -621,6 +669,18 @@ document.addEventListener('DOMContentLoaded', function(){
     let bulkPendingIds = [];
     let bulkProcessing = false;
 
+    // Bulk Change Password Expiry: elements
+    const bulkExpiryBtn = document.getElementById('bulkExpiryBtn');
+    const bulkExpiryModal = document.getElementById('bulkExpiryModal');
+    const bulkExpiryBody = document.getElementById('bulkExpiryBody');
+    const bulkExpiryDaysInput = document.getElementById('bulkExpiryDays');
+    const bulkExpiryCount = document.getElementById('bulkExpiryCount');
+    const bulkExpiryConfirmBtn = document.getElementById('bulkExpiryConfirmBtn');
+    const bulkExpiryCancelBtn = document.getElementById('bulkExpiryCancelBtn');
+    const bulkExpiryClose = bulkExpiryModal ? bulkExpiryModal.querySelector('.modal-close') : null;
+    let bulkExpiryPendingIds = [];
+    let bulkExpiryProcessing = false;
+
     // open modal when admin clicks the bulk action button: gather visible rows' ids
     if (bulkForceResetBtn) {
         bulkForceResetBtn.addEventListener('click', function(){
@@ -634,6 +694,149 @@ document.addEventListener('DOMContentLoaded', function(){
                 return;
             }
             openBulkModal(ids.length, ids);
+        });
+    }
+
+    // open bulk expiry modal when admin clicks the button: gather visible rows' ids
+    if (bulkExpiryBtn) {
+        bulkExpiryBtn.addEventListener('click', function(){
+            if (bulkExpiryProcessing) return;
+            if (!usersTable) return;
+            const rows = Array.from(usersTable.querySelectorAll('tbody tr'));
+            const visibleRows = rows.filter(r => r.style.display !== 'none');
+            const ids = visibleRows.map(r => parseInt(r.dataset.id, 10)).filter(Boolean);
+            if (!ids.length) {
+                try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: 'No users visible to update', color: '#f59e0b' }); } catch(e){}
+                return;
+            }
+            openBulkExpiryModal(ids.length, ids);
+        });
+    }
+
+    if (bulkExpiryCancelBtn) bulkExpiryCancelBtn.addEventListener('click', function(){ if (!bulkExpiryProcessing) closeBulkExpiryModal(); });
+
+    function openBulkExpiryModal(count, ids) {
+        if (!bulkExpiryModal) return;
+        bulkExpiryPendingIds = ids || [];
+        bulkExpiryProcessing = false;
+        bulkExpiryCount.textContent = String(count) + ' users';
+        // reset input to default 90
+        if (bulkExpiryDaysInput) bulkExpiryDaysInput.value = 90;
+        if (bulkExpiryConfirmBtn) { bulkExpiryConfirmBtn.disabled = false; bulkExpiryConfirmBtn.textContent = 'Apply'; }
+        if (bulkExpiryCancelBtn) bulkExpiryCancelBtn.disabled = false;
+        bulkExpiryModal.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeBulkExpiryModal() {
+        if (!bulkExpiryModal) return;
+        bulkExpiryModal.style.display = 'none';
+        document.body.style.overflow = '';
+        bulkExpiryPendingIds = [];
+        bulkExpiryProcessing = false;
+    }
+
+    if (bulkExpiryModal) {
+        bulkExpiryModal.addEventListener('click', function(e){ if (e.target === bulkExpiryModal && !bulkExpiryProcessing) closeBulkExpiryModal(); });
+    }
+    if (bulkExpiryClose) bulkExpiryClose.addEventListener('click', function(){ if (!bulkExpiryProcessing) closeBulkExpiryModal(); });
+
+    // helper to refresh expiry cell display for a row after updating expiry days
+    function refreshExpiryCellForRow(row) {
+        try {
+            if (!row) return;
+            const cell = row.querySelector('.users-col-heat');
+            if (!cell) return;
+            const lastLogin = row.dataset.lastLogin || '';
+            const pwdChanged = row.dataset.passwordChangedAt || '';
+            const expDays = parseInt(row.dataset.passwordExpiryDays || row.dataset.passwordExpirationDays || '90', 10) || 90;
+            // compute heat dot
+            let heatHtml = '';
+            if (!lastLogin) {
+                heatHtml = '<span class="heat-dot heat-grey" title="Never logged in">&nbsp;</span>';
+            } else {
+                const llTs = Date.parse(lastLogin);
+                if (isNaN(llTs)) {
+                    heatHtml = '<span class="heat-dot heat-grey" title="Invalid last login">&nbsp;</span>';
+                } else {
+                    const days = Math.floor((Date.now() - llTs) / 86400000);
+                    let cls = 'heat-red';
+                    if (days <= 7) cls = 'heat-green'; else if (days <= 30) cls = 'heat-yellow';
+                    const label = days + ' days ago';
+                    const title = (lastLogin || '') + ' (' + label + ')';
+                    heatHtml = '<span class="heat-dot ' + cls + '" title="' + (title.replace(/"/g, '&quot;')) + '"></span>';
+                }
+            }
+            // compute expiry text
+            let expiryHtml = '';
+            if (!pwdChanged) {
+                expiryHtml = ' <span class="small-muted">Never (' + expDays + 'd)</span>';
+            } else {
+                const pcTs = Date.parse(pwdChanged);
+                if (isNaN(pcTs)) {
+                    expiryHtml = ' <span class="small-muted">Invalid date</span>';
+                } else {
+                    let elapsed = Math.floor((Date.now() - pcTs) / 86400000);
+                    if (elapsed < 0) elapsed = 0;
+                    let left = expDays - elapsed;
+                    if (left > 0) {
+                        if (left > expDays) left = expDays;
+                        const title = (pwdChanged || '') + ' (elapsed: ' + elapsed + ' days)';
+                        expiryHtml = ' <span class="small-muted" title="' + (title.replace(/"/g, '&quot;')) + '">' + left + ' days' + ' (' + expDays + 'd)</span>';
+                    } else {
+                        const title = (pwdChanged || '') + ' (elapsed: ' + elapsed + ' days)';
+                        expiryHtml = ' <span class="expired-text" title="' + (title.replace(/"/g, '&quot;')) + '">Expired (' + expDays + 'd)</span>';
+                    }
+                }
+            }
+            cell.innerHTML = heatHtml + expiryHtml;
+        } catch (e) { console.warn('refreshExpiryCellForRow failed', e); }
+    }
+
+    if (bulkExpiryConfirmBtn) {
+        bulkExpiryConfirmBtn.addEventListener('click', async function(){
+            if (bulkExpiryProcessing || !bulkExpiryPendingIds.length) return;
+            const daysVal = parseInt((bulkExpiryDaysInput || {}).value || '', 10);
+            if (isNaN(daysVal) || daysVal <= 0) {
+                try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: 'Please enter a valid number of days (>0)', color: '#f59e0b' }); } catch(e){}
+                return;
+            }
+            bulkExpiryProcessing = true;
+            if (bulkExpiryConfirmBtn) { bulkExpiryConfirmBtn.disabled = true; bulkExpiryConfirmBtn.textContent = 'Working...'; }
+            if (bulkExpiryCancelBtn) bulkExpiryCancelBtn.disabled = true;
+            try {
+                const res = await fetch('update_password_expiry_days.php', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ids: bulkExpiryPendingIds, days: daysVal }) });
+                const clone = res.clone();
+                let json = null;
+                if (res.ok) {
+                    try { json = await res.json(); } catch(parseErr) { const txt = await clone.text(); try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: 'Server error: ' + txt.slice(0,200), color: '#dc2626' }); } catch(e){} closeBulkExpiryModal(); return; }
+                } else { const txt = await clone.text(); try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: 'Request failed: ' + txt.slice(0,200), color: '#dc2626' }); } catch(e){} closeBulkExpiryModal(); return; }
+
+                if (json && json.success) {
+                    const updated = Array.isArray(json.updated_ids) ? json.updated_ids : (json.updated ? bulkExpiryPendingIds : []);
+                    // update UI for updated rows
+                    updated.forEach(id => {
+                        const row = usersTable.querySelector('tbody tr[data-id="' + id + '"]');
+                        if (row) {
+                            // update dataset and refresh cell
+                            try { row.dataset.passwordExpiryDays = String(daysVal); } catch(e) { }
+                            refreshExpiryCellForRow(row);
+                        }
+                    });
+                    try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: 'Password expiry days updated for ' + (updated.length || 0) + ' users', color: '#10b981' }); } catch(e){}
+                } else {
+                    const err = json && json.error ? json.error : 'Bulk update failed';
+                    try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: err, color: '#dc2626' }); } catch(e){}
+                }
+            } catch (err) {
+                console.error(err);
+                try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: 'Request failed', color: '#dc2626' }); } catch(e){}
+            } finally {
+                bulkExpiryProcessing = false;
+                try { if (bulkExpiryConfirmBtn) { bulkExpiryConfirmBtn.disabled = false; bulkExpiryConfirmBtn.textContent = 'Apply'; } } catch(e){}
+                try { if (bulkExpiryCancelBtn) bulkExpiryCancelBtn.disabled = false; } catch(e){}
+                try { closeBulkExpiryModal(); } catch(e){}
+            }
         });
     }
 
@@ -858,12 +1061,20 @@ function parseDateFromCell(text){ // try to parse YYYY-MM-DD or fallback
                     <label for="e_manager_display">Manager</label>
                     <input id="e_manager_display" type="text" disabled value="Unassigned">
                     <input type="hidden" id="e_manager_name" name="manager_name" value="">
+                    
                     <!-- role select is placed after department/team/manager so department filters available roles -->
                     <label for="e_role">Role</label>
                     <select id="e_role" name="role_id" required disabled>
                         <?php foreach ($active_roles as $ro2): ?>
                             <option value="<?= (int)$ro2['role_id'] ?>" data-department-id="<?= empty($ro2['department_id']) ? '' : (int)$ro2['department_id'] ?>"><?= htmlspecialchars($ro2['role_name']) ?></option>
                         <?php endforeach; ?>
+                    </select>
+                    <label for="e_password_expiry">Password Expiration Days</label>
+                    <input id="e_password_expiry" name="password_expiration_days" type="number" min="1" value="90" class="modal-input">
+                    <label for="e_scope">Data Access Scope</label>
+                    <select id="e_scope" name="scope" class="modal-input">
+                        <option value="local">Local (department)</option>
+                        <option value="global">Global (all departments)</option>
                     </select>
                     <div style="display:flex;gap:8px;justify-content:space-between;margin-top:12px;">
                         <div>
@@ -874,7 +1085,7 @@ function parseDateFromCell(text){ // try to parse YYYY-MM-DD or fallback
                             ${IS_ADMIN ? '<button type="button" id="e_resend_invite" class="btn" hidden>Resend Invitation</button>' : ''}
                             ${IS_ADMIN ? '<button type="button" id="e_copy_invite" class="btn">Copy Invitation</button>' : ''}
                             ${IS_ADMIN ? '<button type="button" id="e_toggle_active" class="btn">Toggle Active</button>' : ''}
-                            <button type="submit" id="e_save" class="btn">Save</button>
+                            ${CAN_EDIT ? '<button type="submit" id="e_save" class="btn">Save</button>' : ''}
                         </div>
                     </div>
                 </form>
@@ -975,6 +1186,10 @@ function parseDateFromCell(text){ // try to parse YYYY-MM-DD or fallback
             // director & manager displays (prefer dataset)
             e_director_display.value = (row.dataset.director || (row.children[5] && row.children[5].textContent) || 'Unassigned').trim();
             e_director_name.value = e_director_display.value;
+            // password expiration days
+            try { const ped = row.dataset.passwordExpiryDays !== undefined ? parseInt(row.dataset.passwordExpiryDays,10) : (row.dataset.passwordExpirationDays !== undefined ? parseInt(row.dataset.passwordExpirationDays,10) : 90); const epEl = document.getElementById('e_password_expiry'); if (epEl) epEl.value = isNaN(ped) ? 90 : ped; } catch(e) {}
+            // scope value
+            try { const sc = row.dataset.scope || 'local'; const scEl = document.getElementById('e_scope'); if (scEl) scEl.value = sc; } catch(e) {}
             e_manager_display.value = (row.dataset.manager || (row.children[7] && row.children[7].textContent) || 'Unassigned').trim();
             e_manager_name.value = e_manager_display.value;
             // capture original values for change detection
@@ -987,7 +1202,9 @@ function parseDateFromCell(text){ // try to parse YYYY-MM-DD or fallback
                     department_id: String(e_department.value || ''),
                     team_id: String(e_team.value || ''),
                     manager_name: (e_manager_name.value || '').trim(),
-                    director_name: (e_director_name.value || '').trim()
+                    director_name: (e_director_name.value || '').trim(),
+                    password_expiration_days: (document.getElementById('e_password_expiry') || {}).value || '',
+                    scope: (document.getElementById('e_scope') || {}).value || 'local'
                 };
             } catch(e) { E_ORIGINAL = null; }
             // show modal
@@ -1254,6 +1471,10 @@ function parseDateFromCell(text){ // try to parse YYYY-MM-DD or fallback
                         manager_name: (e_manager_name.value || '').trim(),
                         director_name: (e_director_name.value || '').trim()
                     };
+                    // include password expiry days when saving
+                    try { const val = parseInt((document.getElementById('e_password_expiry') || {}).value || '', 10); if (!isNaN(val) && val > 0) payload.password_expiration_days = val; } catch(e) {}
+                    // include scope when saving
+                    try { const sc = (document.getElementById('e_scope') || {}).value || ''; if (sc) payload.scope = sc; } catch(e) {}
                         // if no changes compared to original, notify and skip
                         try {
                             if (E_ORIGINAL) {
@@ -1263,8 +1484,10 @@ function parseDateFromCell(text){ // try to parse YYYY-MM-DD or fallback
                                     && String((E_ORIGINAL.role_id||'')).trim() === String((payload.role_id||'')).trim()
                                     && String((E_ORIGINAL.department_id||'')).trim() === String((payload.department_id||'')).trim()
                                     && String((E_ORIGINAL.team_id||'')).trim() === String((payload.team_id||'')).trim()
-                                    && String((E_ORIGINAL.manager_name||'')).trim() === String((payload.manager_name||'')).trim()
-                                    && String((E_ORIGINAL.director_name||'')).trim() === String((payload.director_name||'')).trim();
+                                        && String((E_ORIGINAL.manager_name||'')).trim() === String((payload.manager_name||'')).trim()
+                                        && String((E_ORIGINAL.director_name||'')).trim() === String((payload.director_name||'')).trim()
+                                        && String((E_ORIGINAL.password_expiration_days||'')).trim() === String((payload.password_expiration_days||'')).trim()
+                                        && String((E_ORIGINAL.scope||'')).trim() === String((payload.scope||'')).trim();
                                 if (same) {
                                     try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: 'No changes detected to save', color: '#f59e0b' }); } catch(e){}
                                     return;
@@ -1291,9 +1514,29 @@ function parseDateFromCell(text){ // try to parse YYYY-MM-DD or fallback
                             try { const roleCell = selectedRow.children[8]; if (roleCell) roleCell.textContent = (json.role || payload.role || '') ? String(json.role || payload.role).charAt(0).toUpperCase() + String(json.role || payload.role).slice(1) : ''; } catch(e){}
                             // update data-role-id attribute so future edits select the correct option
                             try { selectedRow.dataset.roleId = (json.role_id || payload.role_id || ''); } catch(e) {}
+                            // update password expiry dataset and refresh expiry cell
+                            try {
+                                if (payload.password_expiration_days !== undefined) {
+                                    selectedRow.dataset.passwordExpiryDays = String(payload.password_expiration_days);
+                                }
+                                if (payload.scope !== undefined) selectedRow.dataset.scope = String(payload.scope);
+                                refreshExpiryCellForRow(selectedRow);
+                                try {
+                                    const scopeCell = selectedRow.querySelector('.users-col-scope');
+                                    if (scopeCell) scopeCell.textContent = payload.scope ? (String(payload.scope).charAt(0).toUpperCase() + String(payload.scope).slice(1)) : '';
+                                } catch(e) {}
+                            } catch(e) {}
                             // close modal
                             editModal.style.display='none';
                             try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: 'User #' + json.id + ' updated', color: '#10b981' }); } catch(e){}
+                            // If role changed or the current user's account was modified, prompt to log out/log in
+                            try {
+                                const roleChanged = (E_ORIGINAL && String(E_ORIGINAL.role_id || '').trim() !== String((payload.role_id || '')).trim());
+                                const editedSelf = Number(payload.id) === Number(CURRENT_USER_ID);
+                                if (roleChanged || editedSelf) {
+                                    try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: 'Permissions or account changed — please log out and sign in again to refresh access rights.', color: '#f59e0b', duration: 12000 }); } catch(e){}
+                                }
+                            } catch(e) {}
                         } else {
                             const err = json && json.error ? json.error : 'Update failed';
                             document.getElementById('editMsg').textContent = err;
@@ -1326,6 +1569,8 @@ function parseDateFromCell(text){ // try to parse YYYY-MM-DD or fallback
                     department_id: parseInt((document.getElementById('u_department') || {}).value) || 0,
                     team_id: parseInt((document.getElementById('u_team') || {}).value) || 0
                 };
+                try { const ped = parseInt((document.getElementById('u_password_expiry') || {}).value || '', 10); if (!isNaN(ped) && ped > 0) data.password_expiration_days = ped; } catch(e) {}
+                try { const sc = (document.getElementById('u_scope') || {}).value || ''; if (sc) data.scope = sc; } catch(e) {}
             try {
                 const res = await fetch('create_user.php', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
                 const clone = res.clone();

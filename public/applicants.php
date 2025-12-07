@@ -2,6 +2,7 @@
 // public/applicants.php 
 session_start(); 
 require_once '../includes/db.php'; 
+require_once __DIR__ . '/../includes/access.php';
 
 if (!isset($_SESSION['user'])) { 
     header("Location: index.php"); 
@@ -14,7 +15,7 @@ $user = $_SESSION['user'];
 // Build positions grouped by department so modal can require department -> position selection
 $positions = [];
 $positions_by_dept = [];
-$pos_stmt = $conn->prepare("SELECT p.id, p.title, COALESCE(p.department, '') AS department, COALESCE(p.team, '') AS team, p.status_id, COALESCE(s.status_name, '') AS status FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id ORDER BY p.id DESC");
+$pos_stmt = $conn->prepare("SELECT p.id, p.title, COALESCE(p.department, '') AS department, COALESCE(p.team, '') AS team, p.status_id, COALESCE(s.status_name, '') AS status FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id" . _scope_clause('positions','p', true) . " ORDER BY p.id DESC");
 $pos_stmt->execute();
 $pos_res = $pos_stmt->get_result();
 while ($p = $pos_res->fetch_assoc()) {
@@ -63,7 +64,7 @@ while ($r = $roles_result->fetch_assoc()) {
 
 // Departments should reflect the canonical departments table and only active ones
 $filter_departments = [];
-$dept_stmt = $conn->prepare("SELECT department_name FROM departments WHERE active = 1 ORDER BY department_name ASC");
+$dept_stmt = $conn->prepare("SELECT d.department_name FROM departments d WHERE d.active = 1" . _scope_clause('departments','d', false) . " ORDER BY d.department_name ASC");
 if ($dept_stmt) {
   $dept_stmt->execute();
   $dept_result = $dept_stmt->get_result();
@@ -74,7 +75,7 @@ if ($dept_stmt) {
 
 // Teams: prefer teams table active entries so updates are reflected in filters
 $filter_teams = [];
-$team_stmt = $conn->prepare("SELECT DISTINCT team_name FROM teams WHERE active = 1 AND team_name IS NOT NULL AND team_name <> '' ORDER BY team_name ASC");
+$team_stmt = $conn->prepare("SELECT DISTINCT t.team_name FROM teams t WHERE t.active = 1 AND t.team_name IS NOT NULL AND t.team_name <> ''" . _scope_clause('teams','t', false) . " ORDER BY t.team_name ASC");
 if ($team_stmt) {
   $team_stmt->execute();
   $team_res = $team_stmt->get_result();
@@ -163,7 +164,7 @@ if (count($mgr_names)) {
 // experience_level, education_level, created_at
 // build positions_by_team on server so client just looks up by team name
 $positions_by_team = [];
-$posSql = "SELECT p.id, p.title, COALESCE(p.team, '') AS team, COALESCE(s.status_name, '') AS status FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id";
+$posSql = "SELECT p.id, p.title, COALESCE(p.team, '') AS team, COALESCE(s.status_name, '') AS status FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id" . _scope_clause('positions','p', true);
 if ($posRes = $conn->query($posSql)) {
   while ($prow = $posRes->fetch_assoc()) {
     $teamName = trim($prow['team'] ?? ''); // normalize
@@ -207,8 +208,7 @@ $sql = "
   FROM applicants a
   LEFT JOIN applicants_status s ON a.status_id = s.status_id
   LEFT JOIN positions p ON a.position_id = p.id
-  ORDER BY a.created_at DESC
-";
+  " . _scope_clause('applicants','a', true) . "\n  ORDER BY a.created_at DESC\n";
   // execute applicants query and expose result set for rendering below
   $applicants = $conn->query($sql);
   if ($applicants === false) {
@@ -231,7 +231,7 @@ $sql = "
 
 // Fetch teams (to get manager_name). We'll expose teams grouped by department id/name — only active teams
 $teams_by_dept = [];
-if ($res = $conn->query("SELECT team_id AS id, team_name AS name, department_id, manager_name FROM teams WHERE active = 1 ORDER BY team_name")) {
+if ($res = $conn->query("SELECT t.team_id AS id, t.team_name AS name, t.department_id, t.manager_name FROM teams t WHERE t.active = 1" . _scope_clause('teams','t', false) . " ORDER BY t.team_name")) {
   while ($t = $res->fetch_assoc()) {
     $deptId = isset($t['department_id']) ? (int)$t['department_id'] : 0;
     if (!isset($teams_by_dept[$deptId])) $teams_by_dept[$deptId] = [];
@@ -245,9 +245,7 @@ $departments = [];
 $dept_sql = "
   SELECT d.department_id AS id, d.department_name AS name, d.director_name
   FROM departments d
-  WHERE d.active = 1
-  ORDER BY d.department_name
-";
+  WHERE d.active = 1" . _scope_clause('departments','d', false) . "\n  ORDER BY d.department_name\n";
 if ($dres = $conn->query($dept_sql)) {
   while ($dr = $dres->fetch_assoc()) {
     $departments[(int)$dr['id']] = $dr;
@@ -336,7 +334,7 @@ document.addEventListener('DOMContentLoaded', function(){
       <div class="widget-header positions-header-row">
           <div class="page-title"></i> Applicants</div>
           <div class="header-actions">
-            <?php $roleNorm = isset($user['role']) ? strtolower(trim($user['role'])) : ''; $can_create = in_array('applicants_create', $_SESSION['user']['access_keys'] ?? []) || in_array($roleNorm, ['admin','master admin','master_admin','master-admin','masteradmin'], true) || in_array($user['role'], ['hr']); ?>
+            <?php $can_create = _has_access('applicants_create', ['hr']); ?>
             <button id="openCreateApplicantBtn" class="btn primary btn-primary btn-create <?= $can_create ? '' : 'disabled' ?>" <?php if (! $can_create) echo 'disabled title="Insufficient permissions" aria-disabled="true"'; ?> data-open-create="1"><i class="fa-solid fa-user-plus"></i> Create Applicant</button>
           </div>
         </div>
@@ -460,8 +458,8 @@ document.addEventListener('DOMContentLoaded', function(){
           <td><?= htmlspecialchars($degree) ?></td>
           <td><?= $yrs ?></td>
           <td><?= htmlspecialchars($created) ?></td>
-          <td class="sticky-actions" hidden>
-            <?php $roleNorm = isset($user['role']) ? strtolower(trim($user['role'])) : ''; if (in_array($roleNorm, ['admin','master admin','master_admin','master-admin','masteradmin'], true) || in_array($user['role'], ['hr'])): ?>
+            <td class="sticky-actions" hidden>
+            <?php if (_has_access('applicants_view', ['hr'])): ?>
                 <?php if (!empty($resume)): ?>
                   <?php
                     // build resume href relative to public/ directory

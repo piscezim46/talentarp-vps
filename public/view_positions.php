@@ -33,7 +33,7 @@ $user = $_SESSION['user'];
 
 // Fetch departments (include director_name) - only active departments
 $departments = [];
-$dept_res = $conn->query("SELECT department_id AS id, department_name AS name, director_name FROM departments WHERE active = 1 ORDER BY department_name");
+$dept_res = $conn->query("SELECT d.department_id AS id, d.department_name AS name, d.director_name FROM departments d WHERE d.active = 1" . _scope_clause('departments','d', false) . " ORDER BY d.department_name");
 if ($dept_res) {
   while ($r = $dept_res->fetch_assoc()) {
     $departments[] = $r;
@@ -43,7 +43,7 @@ if ($dept_res) {
 
 // Fetch teams grouped by department (use actual column names) - only active teams
 $teams_by_dept = [];
-$teams_res = $conn->query("SELECT team_id AS id, team_name AS name, department_id, manager_name FROM teams WHERE active = 1 ORDER BY team_name");
+$teams_res = $conn->query("SELECT t.team_id AS id, t.team_name AS name, t.department_id, t.manager_name FROM teams t WHERE t.active = 1" . _scope_clause('teams','t', false) . " ORDER BY t.team_name");
 if ($teams_res) {
     while ($t = $teams_res->fetch_assoc()) {
         $deptId = (int)$t['department_id'];
@@ -164,7 +164,9 @@ try {
       LEFT JOIN positions_status s ON p.status_id = s.status_id
     ";
 
-    $sql .= " ORDER BY p.created_at DESC";
+    // apply scope clause for positions (local users see only their department)
+    // No WHERE exists yet in this query, so ask the helper to start with WHERE
+    $sql .= _scope_clause('positions','p', true) . " ORDER BY p.created_at DESC";
     $stmt = $conn->prepare($sql);
     if ($stmt) {
       $stmt->execute();
@@ -192,8 +194,9 @@ $applicant_counts = [];
 // Applicant counts per position — restrict by department through positions table when needed
 try {
     $applicant_counts = [];
-    $sqlAc = "SELECT a.position_id AS position_id, COUNT(*) AS cnt FROM applicants a JOIN positions p ON a.position_id = p.id";
-    // no department filter: count applicants per position across all departments
+    // applicant counts per position — ensure we only count applicants for positions in the user's department
+    $sqlAc = "SELECT a.position_id AS position_id, COUNT(*) AS cnt FROM applicants a JOIN positions p ON a.position_id = p.id" . _scope_clause('positions','p', true);
+    // group counts (scope clause may have injected an AND/WHERE prefix already)
     $sqlAc .= ' GROUP BY a.position_id';
 
     $stmtAc = $conn->prepare($sqlAc);
@@ -210,7 +213,7 @@ try {
 // Fetch distinct lists for list-based filters
 $titles = [];
 // Distinct titles with optional department filter
- $sqlT = "SELECT DISTINCT COALESCE(NULLIF(TRIM(p.title),''),'') AS title FROM positions p WHERE p.title IS NOT NULL AND TRIM(p.title) <> '' ORDER BY title";
+ $sqlT = "SELECT DISTINCT COALESCE(NULLIF(TRIM(p.title),''),'') AS title FROM positions p WHERE p.title IS NOT NULL AND TRIM(p.title) <> ''" . _scope_clause('positions','p', false) . " ORDER BY title";
  $stmtT = $conn->prepare($sqlT);
  if ($stmtT) {
    $stmtT->execute();
@@ -240,7 +243,7 @@ $team_list = array_values(array_unique($team_list));
 sort($team_list, SORT_STRING | SORT_FLAG_CASE);
 
 $manager_list = [];
- $sqlM = "SELECT DISTINCT COALESCE(NULLIF(TRIM(p.manager_name),''),'') AS manager_name FROM positions p WHERE p.manager_name IS NOT NULL AND TRIM(p.manager_name) <> '' ORDER BY manager_name";
+ $sqlM = "SELECT DISTINCT COALESCE(NULLIF(TRIM(p.manager_name),''),'') AS manager_name FROM positions p WHERE p.manager_name IS NOT NULL AND TRIM(p.manager_name) <> ''" . _scope_clause('positions','p', false) . " ORDER BY manager_name";
  $stmtM = $conn->prepare($sqlM);
  if ($stmtM) {
    $stmtM->execute();
@@ -250,7 +253,7 @@ $manager_list = [];
  }
 
 $employment_list = [];
- $sqlE = "SELECT DISTINCT COALESCE(NULLIF(TRIM(p.employment_type),''),'') AS employment FROM positions p WHERE p.employment_type IS NOT NULL AND TRIM(p.employment_type) <> '' ORDER BY employment";
+ $sqlE = "SELECT DISTINCT COALESCE(NULLIF(TRIM(p.employment_type),''),'') AS employment FROM positions p WHERE p.employment_type IS NOT NULL AND TRIM(p.employment_type) <> ''" . _scope_clause('positions','p', false) . " ORDER BY employment";
  $stmtE = $conn->prepare($sqlE);
  if ($stmtE) {
    $stmtE->execute();
@@ -260,7 +263,7 @@ $employment_list = [];
  }
 
 $openings_list = [];
- $sqlO = "SELECT DISTINCT COALESCE(p.openings, '') AS openings FROM positions p ORDER BY openings ASC";
+ $sqlO = "SELECT DISTINCT COALESCE(p.openings, '') AS openings FROM positions p" . _scope_clause('positions','p', true) . " ORDER BY openings ASC";
  $stmtO = $conn->prepare($sqlO);
  if ($stmtO) {
    $stmtO->execute();

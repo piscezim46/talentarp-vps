@@ -28,6 +28,8 @@ $role_id = isset($input['role_id']) && $input['role_id'] !== '' ? intval($input[
 $manager_name = trim($input['manager_name'] ?? '');
 $department_id = isset($input['department_id']) ? intval($input['department_id']) : 0;
 $team_id = isset($input['team_id']) ? intval($input['team_id']) : 0;
+$password_expiration_days = isset($input['password_expiration_days']) ? intval($input['password_expiration_days']) : 90;
+$scope = isset($input['scope']) && in_array($input['scope'], ['local','global'], true) ? $input['scope'] : 'local';
 
 // require role_id or role name
 if ($name === '' || $email === '' || $password === '' || ($role_id === null && $role === '')) {
@@ -96,8 +98,8 @@ $hash = password_hash($password, PASSWORD_DEFAULT);
 $active = 1;
 
 // insert user (if department/team not provided, use 0)
-// insert using role_id (nullable) — include optional user_name
-$stmt = $conn->prepare("INSERT INTO users (name, user_name, email, password, role_id, manager_name, active, department_id, team_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
+// insert using role_id (nullable) — include optional user_name and password_expiration_days
+$stmt = $conn->prepare("INSERT INTO users (name, user_name, email, password, role_id, manager_name, active, department_id, team_id, password_expiration_days, scope, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
 if (!$stmt) {
     http_response_code(500);
     echo json_encode(['error' => 'Prepare failed']);
@@ -105,7 +107,7 @@ if (!$stmt) {
 }
 // bind role_id as integer (may be null)
 $role_id_param = $role_id === null ? null : $role_id;
-$stmt->bind_param('ssssisiii', $name, $user_name, $email, $hash, $role_id_param, $manager_name, $active, $department_id, $team_id);
+$stmt->bind_param('ssssisiiiss', $name, $user_name, $email, $hash, $role_id_param, $manager_name, $active, $department_id, $team_id, $password_expiration_days, $scope);
 if (!$stmt->execute()) {
     http_response_code(500);
     echo json_encode(['error' => 'Insert failed: ' . $stmt->error]);
@@ -190,7 +192,8 @@ if (!$stmt->execute()) {
             'role' => $resp_role_name,
             'manager_name' => $manager_name,
             'department_id' => $department_id,
-            'team_id' => $team_id
+            'team_id' => $team_id,
+            'scope' => $scope
         ]
     ];
 

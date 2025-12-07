@@ -76,7 +76,7 @@ $params = [];
 // Department filtering disabled (show all departments)
 $useDept = false;
 
-$sql .= " ORDER BY p.created_at DESC LIMIT 100";
+$sql .= _scope_clause('positions','p', false) . " ORDER BY p.created_at DESC LIMIT 100";
 
 try {
   $stmt = $conn->prepare($sql);
@@ -117,7 +117,7 @@ $terminalInterviewNames = [ 'cancelled','completed' ];
 $applicants = [];
 try {
   // Include position title and team where available so dashboard can display richer info
-  $sqlA = "SELECT a.applicant_id, a.full_name, a.status_id, COALESCE(s.status_name,'') AS status_name, a.created_at, a.position_id, COALESCE(p.title,'') AS position_title, COALESCE(p.team,'') AS team_name FROM applicants a LEFT JOIN applicants_status s ON a.status_id = s.status_id LEFT JOIN positions p ON a.position_id = p.id WHERE (LOWER(COALESCE(s.status_name,'')) NOT IN ('" . implode("','", array_map('addslashes', $terminalApplicantNames)) . "') ) OR a.created_at >= ? ORDER BY a.created_at DESC LIMIT 500";
+  $sqlA = "SELECT a.applicant_id, a.full_name, a.status_id, COALESCE(s.status_name,'') AS status_name, a.created_at, a.position_id, COALESCE(p.title,'') AS position_title, COALESCE(p.team,'') AS team_name FROM applicants a LEFT JOIN applicants_status s ON a.status_id = s.status_id LEFT JOIN positions p ON a.position_id = p.id WHERE ((LOWER(COALESCE(s.status_name,'')) NOT IN ('" . implode("','", array_map('addslashes', $terminalApplicantNames)) . "') ) OR a.created_at >= ?)" . _scope_clause('positions','p', false) . " ORDER BY a.created_at DESC LIMIT 500";
   $stmtA = $conn->prepare($sqlA);
   if ($stmtA) {
     $stmtA->bind_param('s', $monthAgo);
@@ -130,7 +130,7 @@ try {
 
 $interviews = [];
 try {
-  $sqlI = "SELECT i.id, i.applicant_id, COALESCE(u.name,'') AS applicant_name, i.interview_datetime, i.status_id, COALESCE(s.name,'') AS status_name, i.created_at FROM interviews i LEFT JOIN interview_statuses s ON i.status_id = s.id LEFT JOIN applicants a ON a.applicant_id = i.applicant_id LEFT JOIN users u ON i.created_by = u.id WHERE (LOWER(COALESCE(s.name,'')) NOT IN ('" . implode("','", array_map('addslashes', $terminalInterviewNames)) . "') ) OR (i.interview_datetime >= ?) ORDER BY i.interview_datetime DESC LIMIT 500";
+  $sqlI = "SELECT i.id, i.applicant_id, COALESCE(u.name,'') AS applicant_name, i.interview_datetime, i.status_id, COALESCE(s.name,'') AS status_name, i.created_at FROM interviews i LEFT JOIN interview_statuses s ON i.status_id = s.id LEFT JOIN applicants a ON a.applicant_id = i.applicant_id LEFT JOIN users u ON i.created_by = u.id WHERE ((LOWER(COALESCE(s.name,'')) NOT IN ('" . implode("','", array_map('addslashes', $terminalInterviewNames)) . "') ) OR (i.interview_datetime >= ?))" . _scope_clause('applicants','a', false) . " ORDER BY i.interview_datetime DESC LIMIT 500";
   $stmtI = $conn->prepare($sqlI);
   if ($stmtI) {
     $stmtI->bind_param('s', $monthAgo);
@@ -163,7 +163,7 @@ $interviewCounts = ['today'=>0,'week'=>0,'month'=>0];
 // Positions: count by creation date within the timeframe
 foreach ($ranges as $k => $start) {
   try {
-    $sqlP = "SELECT COUNT(*) AS c FROM positions p WHERE p.created_at >= ?";
+    $sqlP = "SELECT COUNT(*) AS c FROM positions p WHERE p.created_at >= ?" . _scope_clause('positions','p', false);
     $useDept = false;
     $stmtP = $conn->prepare($sqlP);
     if ($stmtP) {
@@ -179,7 +179,7 @@ foreach ($ranges as $k => $start) {
 // Applicants: count by creation date within the timeframe
 foreach ($ranges as $k => $start) {
   try {
-    $sqlA = "SELECT COUNT(*) AS c FROM applicants a WHERE a.created_at >= ?";
+    $sqlA = "SELECT COUNT(*) AS c FROM applicants a WHERE a.created_at >= ?" . _scope_clause('applicants','a', false);
     $stmtA = $conn->prepare($sqlA);
     if ($stmtA) {
       $stmtA->bind_param('s', $start);
@@ -194,7 +194,8 @@ foreach ($ranges as $k => $start) {
 // Interviews: count by interview date within the timeframe
 foreach ($ranges as $k => $start) {
   try {
-    $sqlI = "SELECT COUNT(*) AS c FROM interviews i WHERE i.interview_datetime >= ?";
+    // Join applicants so we can scope interviews to the user's department via applicants/positions
+    $sqlI = "SELECT COUNT(*) AS c FROM interviews i JOIN applicants a ON a.applicant_id = i.applicant_id WHERE i.interview_datetime >= ?" . _scope_clause('applicants','a', false);
     $stmtI = $conn->prepare($sqlI);
     if ($stmtI) {
       $stmtI->bind_param('s', $start);
@@ -210,23 +211,23 @@ foreach ($ranges as $k => $start) {
 // Positions overview
 $totalPositions = 0; $activePositions = 0; $positionsInApproval = 0; $closedPositions = 0;
 try {
-  $q = 'SELECT COUNT(*) AS c FROM positions';
+  $q = 'SELECT COUNT(*) AS c FROM positions p' . _scope_clause('positions','p', true);
   $r = $conn->query($q); if ($r) { $row = $r->fetch_assoc(); $totalPositions = (int)($row['c'] ?? 0); $r->free(); }
 
   // Active = positions_status = 'open'
   $useDept = false;
-  $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id WHERE LOWER(COALESCE(s.status_name,'')) = 'open'");
+  $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id WHERE LOWER(COALESCE(s.status_name,'')) = 'open'" . _scope_clause('positions','p', false));
   if ($stmt) {
     $stmt->execute(); $res = $stmt->get_result(); $r = $res->fetch_assoc(); $activePositions = (int)($r['c'] ?? 0); $stmt->close(); }
 
   // In Approval = name contains 'approval'
   $useDept = false;
-  $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id WHERE LOWER(COALESCE(s.status_name,'')) LIKE '%approval%'");
+  $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id WHERE LOWER(COALESCE(s.status_name,'')) LIKE '%approval%'" . _scope_clause('positions','p', false));
   if ($stmt) { $stmt->execute(); $res = $stmt->get_result(); $r = $res->fetch_assoc(); $positionsInApproval = (int)($r['c'] ?? 0); $stmt->close(); }
 
   // Closed: common keywords
   $useDept = false;
-  $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id WHERE LOWER(COALESCE(s.status_name,'')) IN ('closed','filled','cancelled')");
+  $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM positions p LEFT JOIN positions_status s ON p.status_id = s.status_id WHERE LOWER(COALESCE(s.status_name,'')) IN ('closed','filled','cancelled')" . _scope_clause('positions','p', false));
   if ($stmt) { $stmt->execute(); $res = $stmt->get_result(); $r = $res->fetch_assoc(); $closedPositions = (int)($r['c'] ?? 0); $stmt->close(); }
 } catch (Throwable $_) {}
 

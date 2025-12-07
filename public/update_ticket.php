@@ -16,8 +16,8 @@ if (!isset($_SESSION['user'])) {
 $user = $_SESSION['user'];
 
 // Only admin or HR can update status
-$roleNorm = isset($user['role']) ? strtolower(trim($user['role'])) : '';
-if (!in_array($roleNorm, ['admin','master admin','master_admin','master-admin','masteradmin'], true) && !in_array($user['role'], ['hr'])) {
+// Prefer access keys; allow legacy 'hr' role when access_keys missing
+if (!_has_access('tickets_update', ['hr'])) {
     die("Access denied");
 }
 

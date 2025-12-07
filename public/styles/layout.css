@@ -17,7 +17,7 @@
 body { padding-top: var(--topbar-height); }
 .topbar .logo-section { display:flex; align-items:center; gap:8px; }
 .topbar .logo-section img { height:50px; width:auto; display:block; }
-.topbar .tagline { color: var(--accent); font-weight:600; font-size:16px; }
+.topbar .tagline { color: var(--accent); font-weight:600; font-size:16px; font-family: 'Inter', sans-serif; }
 
 /* Reset */
 * {

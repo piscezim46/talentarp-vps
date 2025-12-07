@@ -513,8 +513,22 @@
 .modal-card .modal-close:hover { background: rgba(0,0,0,0.04); color: var(--text-main); box-shadow: 0 0 0 3px rgba(53,156,246,0.06); }
 
 /* Modal action buttons (Cancel / Create) */
-.modal-card .modal-actions .btn { padding:8px 12px; border-radius:8px; border:1px solid rgba(15,23,42,0.06); background:var(--panel); color:var(--text-main); cursor:pointer; }
+.modal-card .modal-actions { padding:8px 12px; border-radius:8px; border:1px solid rgba(15,23,42,0.06); background:var(--panel); color:var(--text-main); cursor:pointer; }
 .modal-card .modal-actions .btn.primary, .modal-card .modal-actions .btn.primary:hover { background: var(--accent); color: #fff; border-color: color-mix(in srgb, var(--accent) 85%, transparent); }
+.btn{
+    color: rgb(255, 255, 255);
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: none;
+    background: var(--accent);
+    border-width: initial;
+    border-style: none;
+    border-color: initial;
+    border-image: initial;
+    padding: 10px 14px;
+    border-radius: 10px;
+    transition: transform 0.15s, box-shadow 0.15s;
+}
 
 /* Make file input look consistent with modal inputs */
 .modal-input[type="file"] { display:block; padding:8px 10px; border-radius:8px; border:1px solid rgba(15,23,42,0.06); background:#fff; color:var(--text-main); cursor:pointer; }

@@ -19,22 +19,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $user = $result->fetch_assoc();
 
     if ($user && password_verify($password, $user['password'])) {
-      // If the user's password is older than 30 days, mark them for force reset.
-      try {
+        // If the user's password is older than their configured expiry days, mark them for force reset.
+        // Behavior: if password_expiration_days = 0 -> never expire. If missing, fallback to 90 days.
+        try {
         $pwdChanged = isset($user['password_changed_at']) ? strtotime($user['password_changed_at']) : null;
+        $expDays = isset($user['password_expiration_days']) ? intval($user['password_expiration_days']) : 90;
         $expired = false;
-        if ($pwdChanged === null || $pwdChanged === false) {
-            // treat NULL as expired (optional)
-            $expired = true;
+        if ($expDays === 0) {
+          // 0 means never expire
+          $expired = false;
         } else {
-            if ($pwdChanged < strtotime('-30 days')) $expired = true;
+          if ($pwdChanged === null || $pwdChanged === false) {
+            // no recorded change -> treat as expired
+            $expired = true;
+          } else {
+            if ($pwdChanged < strtotime("-{$expDays} days")) $expired = true;
+          }
         }
         if ($expired) {
-            $uup = $conn->prepare('UPDATE users SET force_password_reset = 1 WHERE id = ?');
-            if ($uup) { $uidx = (int)$user['id']; $uup->bind_param('i', $uidx); $uup->execute(); $uup->close(); }
-            $user['force_password_reset'] = 1;
+          $uup = $conn->prepare('UPDATE users SET force_password_reset = 1 WHERE id = ?');
+          if ($uup) { $uidx = (int)$user['id']; $uup->bind_param('i', $uidx); $uup->execute(); $uup->close(); }
+          $user['force_password_reset'] = 1;
         }
-      } catch (Throwable $_) { /* ignore expiry enforcement failure */ }
+        } catch (Throwable $_) { /* ignore expiry enforcement failure */ }
       // build session user and include access keys from roles tables when available
       // prefer role_id when present (newer schema); keep role name for backward compatibility
       $role_id = isset($user['role_id']) ? (int)$user['role_id'] : null;
@@ -47,6 +54,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'role_id' => $role_id,
         'force_password_reset' => !empty($user['force_password_reset']) ? 1 : 0
       ];
+
+      // expose user's configured password expiry days in session for downstream checks (fallback to 90)
+      $_SESSION['user']['password_expiration_days'] = isset($user['password_expiration_days']) ? intval($user['password_expiration_days']) : 90;
 
       // Top-level session keys used by department access helpers
       // Keep both `$_SESSION['user']['role']` and `$_SESSION['role']` in sync.
@@ -109,64 +119,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
       }
 
-      // load access keys for this user's role (prefer role_id when available)
-      try {
-        $access_keys = [];
-        if ($role_id) {
-          $stmt2 = $conn->prepare("SELECT ar.access_key FROM role_access_rights rar JOIN access_rights ar ON rar.access_id = ar.access_id WHERE rar.role_id = ?");
-          if ($stmt2) {
-            $stmt2->bind_param('i', $role_id);
-            $stmt2->execute();
-            $res2 = $stmt2->get_result();
-            while ($row = $res2->fetch_assoc()) {
-              $access_keys[] = $row['access_key'];
-            }
-            $stmt2->close();
-          }
-        } else {
-          $stmt2 = $conn->prepare("SELECT ar.access_key FROM role_access_rights rar JOIN roles r ON rar.role_id = r.role_id JOIN access_rights ar ON rar.access_id = ar.access_id WHERE r.role_name = ?");
-          if ($stmt2) {
-            $stmt2->bind_param('s', $role_name);
-            $stmt2->execute();
-            $res2 = $stmt2->get_result();
-            while ($row = $res2->fetch_assoc()) {
-              $access_keys[] = $row['access_key'];
-            }
-            $stmt2->close();
-          }
-        }
-        // Ensure top-level session role mirrors updated user role for helpers
-        $_SESSION['role'] = $_SESSION['user']['role'] ?? '';
+      // store scope and department_id in session for filtering helpers
+      $_SESSION['user']['scope'] = (!empty($user['scope']) && $user['scope'] === 'global') ? 'global' : 'local';
+      if (!empty($user['department_id'])) $_SESSION['user']['department_id'] = (int)$user['department_id'];
 
-        // as a fallback, admin gets all access (handle role_name variants and role_id mapping)
-        $roleNorm = isset($role_name) ? strtolower(trim($role_name)) : '';
-        $adminNames = ['admin','master admin','master_admin','master-admin','masteradmin'];
-        $is_admin = in_array($roleNorm, $adminNames, true);
-        // also treat specific role_id as admin (legacy) — role_id 3 is Master Admin in your DB
-        if (!$is_admin && !empty($role_id)) {
-          $rstmt = $conn->prepare("SELECT role_name FROM roles WHERE role_id = ? LIMIT 1");
-          if ($rstmt) {
-            $rstmt->bind_param('i', $role_id);
-            $rstmt->execute();
-            $rres = $rstmt->get_result()->fetch_assoc();
-            if ($rres && isset($rres['role_name']) && in_array(strtolower(trim($rres['role_name'])), $adminNames, true)) $is_admin = true;
-            $rstmt->close();
-          }
-        }
+        // load access keys for this user's role (prefer role_id when available)
+        try {
+            $access_keys = [];
+            if ($role_id) {
+                $stmt2 = $conn->prepare("SELECT ar.access_key FROM role_access_rights rar JOIN access_rights ar ON rar.access_id = ar.access_id WHERE rar.role_id = ?");
+                if ($stmt2) {
+                    $stmt2->bind_param('i', $role_id);
+                    $stmt2->execute();
+                    $res2 = $stmt2->get_result();
+                    while ($row = $res2->fetch_assoc()) {
+                        $access_keys[] = $row['access_key'];
+                    }
+                    $stmt2->close();
+                }
+            } else {
+                $stmt2 = $conn->prepare("SELECT ar.access_key FROM role_access_rights rar JOIN roles r ON rar.role_id = r.role_id JOIN access_rights ar ON rar.access_id = ar.access_id WHERE r.role_name = ?");
+                if ($stmt2) {
+                    $stmt2->bind_param('s', $role_name);
+                    $stmt2->execute();
+                    $res2 = $stmt2->get_result();
+                    while ($row = $res2->fetch_assoc()) {
+                        $access_keys[] = $row['access_key'];
+                    }
+                    $stmt2->close();
+                }
+            }
+            // Ensure top-level session role mirrors updated user role for helpers
+            $_SESSION['role'] = $_SESSION['user']['role'] ?? '';
 
-        // If user is an admin (including Master Admin), grant all access rights unconditionally
-        if ($is_admin) {
-          $access_keys = [];
-          $rk = $conn->query("SELECT access_key FROM access_rights");
-          if ($rk) {
-            while ($rr = $rk->fetch_assoc()) $access_keys[] = $rr['access_key'];
-            $rk->free();
-          }
+            $_SESSION['user']['access_keys'] = $access_keys;
+        } catch (Throwable $e) {
+            // ignore — session will simply not have access_keys
         }
-        $_SESSION['user']['access_keys'] = $access_keys;
-      } catch (Throwable $e) {
-        // ignore — session will simply not have access_keys
-      }
         // If account is marked for password reset, redirect to password set page
         if (!empty($_SESSION['user']['force_password_reset'])) {
             header("Location: set_password.php");

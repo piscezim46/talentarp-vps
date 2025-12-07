@@ -25,6 +25,8 @@ $query_error = '';
 try {
     // Load interviews (no department restriction)
     try {
+      // Apply scope by positions.department so local-scope users only see interviews
+      // for positions in their department. No WHERE exists so request a WHERE prefix.
       $sql = "SELECT i.id, i.position_id AS position_id, i.applicant_id AS applicant_id, i.interview_datetime AS start, DATE_ADD(i.interview_datetime, INTERVAL 30 MINUTE) AS end, i.status_id, i.comments, a.full_name AS applicant_name, a.email AS applicant_email, a.phone AS applicant_phone, p.title AS position_name, p.department AS department_name, p.team AS team_name, p.manager_name AS manager_name, COALESCE(u.name,'') AS created_by_name, COALESCE(d.department_name,'') AS created_by_department, s.name AS status_name, s.status_color AS status_color
         FROM interviews i
         LEFT JOIN applicants a ON i.applicant_id = a.applicant_id
@@ -32,6 +34,7 @@ try {
         LEFT JOIN users u ON i.created_by = u.id
         LEFT JOIN departments d ON u.department_id = d.department_id
         LEFT JOIN interview_statuses s ON i.status_id = s.id
+        " . _scope_clause('positions','p', true) . "
         ORDER BY i.interview_datetime DESC";
 
       $stmt = $conn->prepare($sql);
@@ -143,7 +146,7 @@ try {
 // Load distinct managers from positions table (apply department filter when applicable)
 $managers = [];
   try {
-  $sqlM = "SELECT DISTINCT COALESCE(NULLIF(TRIM(p.manager_name),'') ,'') AS manager_name FROM positions p WHERE p.manager_name IS NOT NULL AND TRIM(p.manager_name) <> '' ORDER BY manager_name";
+  $sqlM = "SELECT DISTINCT COALESCE(NULLIF(TRIM(p.manager_name),'') ,'') AS manager_name FROM positions p WHERE p.manager_name IS NOT NULL AND TRIM(p.manager_name) <> ''" . _scope_clause('positions','p', false) . " ORDER BY manager_name";
   $stmtM = $conn->prepare($sqlM);
   if ($stmtM) {
     $stmtM->execute();
@@ -156,7 +159,7 @@ $managers = [];
 // Load positions that have interviews (unique) with department restriction when needed
 $positions_with_interviews = [];
   try {
-  $sqlP = "SELECT DISTINCT p.id, p.title FROM positions p JOIN interviews i ON i.position_id = p.id ORDER BY p.title";
+  $sqlP = "SELECT DISTINCT p.id, p.title FROM positions p JOIN interviews i ON i.position_id = p.id" . _scope_clause('positions','p', true) . " ORDER BY p.title";
   $stmtP = $conn->prepare($sqlP);
   if ($stmtP) {
     $stmtP->execute();

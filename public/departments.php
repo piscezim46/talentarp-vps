@@ -3,12 +3,11 @@ session_start();
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/access.php';
 
-$user = $_SESSION['user'] ?? null;
-$roleNorm = isset($user['role']) ? strtolower(trim($user['role'])) : '';
-if (!$user || !(in_array('departments_view', $user['access_keys'] ?? []) || in_array($roleNorm, ['admin','master admin','master_admin','master-admin','masteradmin'], true))) {
-    header("Location: index.php");
-    exit;
-}
+ $user = $_SESSION['user'] ?? null;
+ if (!$user || !_has_access('departments_view')) {
+     header("Location: index.php");
+     exit;
+ }
 
 $canCreate = _has_access('departments_create');
 $canEdit   = _has_access('departments_edit');
@@ -19,8 +18,9 @@ $activePage = 'departments';
 $departments = [];
 $sql = "SELECT d.department_id, d.department_name, d.short_name, d.director_name, d.active AS department_active, t.team_id, t.team_name, t.manager_name, t.active
     FROM departments d
-    LEFT JOIN teams t ON t.department_id = d.department_id
-    ORDER BY d.department_id ASC, t.team_id ASC";
+    LEFT JOIN teams t ON t.department_id = d.department_id" .
+    _scope_clause('departments','d', true) .
+    " ORDER BY d.department_id ASC, t.team_id ASC";
 if ($res = $conn->query($sql)) {
     while ($r = $res->fetch_assoc()) {
         $id = (int)$r['department_id'];
