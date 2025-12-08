@@ -1,5 +1,5 @@
 <?php
-// Show all PHP errors
+// Force all PHP errors to display
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
@@ -7,20 +7,20 @@ error_reporting(E_ALL);
 // Database credentials
 $host = "localhost";
 $user = "root";
-$pass = "password"; // replace with your actual DB password
+$pass = "password"; // replace with your actual MySQL root password
 $dbname = "ticketing_db";
 
-// Connect to DB
-$conn = new mysqli($host, $user, $pass, $dbname);
+// Try connecting
+$conn = @new mysqli($host, $user, $pass, $dbname);
 
 // Check connection
 if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
+    die("DB Connection Error: " . $conn->connect_error);
 }
 
-// Confirm which database we are connected to
+// Confirm current DB
 $result = $conn->query("SELECT DATABASE() AS dbname");
 $row = $result->fetch_assoc();
 echo "Database connection successful!<br>";
-echo "Connected to DB: " . $row['dbname'];
+echo "Currently connected to: " . $row['dbname'];
 ?>
