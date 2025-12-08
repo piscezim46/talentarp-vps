@@ -1,6 +1,15 @@
 <?php
-session_start();
+// Start session only if not already active
+if (function_exists('session_status')) {
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        session_start();
+    }
+} else {
+    @session_start();
+}
 require_once '../includes/db.php';
+
+$pageTitle = 'Parse Resume(s)';
 
 if (!isset($_SESSION['user'])) {
     die("Unauthorized access");
@@ -123,7 +132,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['resumes'])) {
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Parse Resume(s)</title>
+        <title><?= htmlspecialchars($pageTitle ?? 'App') ?></title>
     </head>
     <body>
         <h2>Upload Resumes to Parse</h2>

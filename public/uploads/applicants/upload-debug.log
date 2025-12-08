@@ -12,3 +12,15 @@
 [2025-11-30T03:50:08+01:00] Upload processed successfully: count=8
 [2025-11-30T15:14:26+01:00] ENTRY: create_applicant invoked; method=POST; position_id=68; _FILES_keys=uploads; CONTENT_LENGTH=46130; HTTP_REFERER=http://localhost/website/ticketing-system/public/applicants.php
 [2025-11-30T15:14:26+01:00] Upload processed successfully: count=1
+[2025-12-05T11:53:49+01:00] ENTRY: create_applicant invoked; method=POST; position_id=73; _FILES_keys=uploads; CONTENT_LENGTH=3860679; HTTP_REFERER=http://localhost/website/ticketing-system/public/applicants.php
+[2025-12-05T11:53:49+01:00] Upload processed successfully: count=1
+[2025-12-05T13:19:51+01:00] ENTRY: create_applicant invoked; method=POST; position_id=76; _FILES_keys=uploads; CONTENT_LENGTH=29513151; HTTP_REFERER=http://localhost/website/ticketing-system/public/applicants.php
+[2025-12-05T13:19:51+01:00] Upload processed successfully: count=12
+[2025-12-05T13:58:01+01:00] ENTRY: create_applicant invoked; method=POST; position_id=76; _FILES_keys=uploads; CONTENT_LENGTH=42137; HTTP_REFERER=http://localhost/website/ticketing-system/public/applicants.php
+[2025-12-05T13:58:01+01:00] Upload processed successfully: count=1
+[2025-12-05T14:06:50+01:00] ENTRY: create_applicant invoked; method=POST; position_id=76; _FILES_keys=uploads; CONTENT_LENGTH=833165; HTTP_REFERER=http://localhost/website/ticketing-system/public/applicants.php?created=1
+[2025-12-05T14:06:50+01:00] Upload processed successfully: count=1
+[2025-12-05T14:10:22+01:00] ENTRY: create_applicant invoked; method=POST; position_id=76; _FILES_keys=uploads; CONTENT_LENGTH=3860681; HTTP_REFERER=http://localhost/website/ticketing-system/public/applicants.php?created=1
+[2025-12-05T14:10:22+01:00] Upload processed successfully: count=1
+[2025-12-06T11:23:07+01:00] ENTRY: create_applicant invoked; method=POST; position_id=73; _FILES_keys=uploads; CONTENT_LENGTH=3860679; HTTP_REFERER=http://localhost/website/ticketing-system/public/applicants.php
+[2025-12-06T11:23:07+01:00] Upload processed successfully: count=1

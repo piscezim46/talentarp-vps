@@ -9,7 +9,10 @@ body{
   max-width: calc(100vw - var(--sidebar-width) - 24px);
   width: 100%;
   height: 100%;
-  overflow: hidden; /* Prevent dashboard-level scrolling */
+  overflow-y: auto; /* Allow vertical scroll */
+  overflow-x: hidden; /* Prevent horizontal overflow */
+  -ms-overflow-style: none; /* IE and Edge: hide scrollbar */
+  scrollbar-width: none; /* Firefox: hide scrollbar */
   box-sizing: border-box;
   margin: 0; /* rely on .content-area positioning for offsets */
   /* ensure padding doesn't push content past the calculated max-width */
@@ -64,6 +67,7 @@ body{
 .recent-list::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); border-radius:999px; }
 .recent-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius:999px; border:2px solid transparent; background-clip: padding-box; }
 .recent-list { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) rgba(255,255,255,0.02); }
+.content-area .dashboard::-webkit-scrollbar { width: 0; height: 0; }
 .table-card table { width:100%; min-width:100%; border-collapse:collapse; table-layout:fixed; word-break:break-word; }
 .table-card .hdr { padding:14px 16px; border-bottom:1px solid rgba(16,24,40,0.06); display:flex; align-items:center; justify-content:space-between; background: transparent; }
 .table-card .hdr h3 { margin:0; color:#0f1720; font-size:1.18rem; font-weight:700; }
@@ -128,10 +132,25 @@ body{
   flex: 1 1 auto;
   height: 100%;
 }
+
+/* Make the summary stack itself scrollable and reveal a thin scrollbar on hover for discoverability */
+#summaryStack {
+  overflow-y: auto;
+  overflow-x: hidden;
+  -ms-overflow-style: none; /* IE and Edge: hide scrollbar by default */
+  scrollbar-width: none; /* Firefox: hide scrollbar by default */
+}
+
+/* Hide by default in WebKit, show thin scrollbar on hover */
+#summaryStack::-webkit-scrollbar { width: 0; }
+#summaryStack:hover { -ms-overflow-style: auto; scrollbar-width: thin; }
+#summaryStack:hover::-webkit-scrollbar { width: 8px; }
+#summaryStack:hover::-webkit-scrollbar-track { background: transparent; }
+#summaryStack:hover::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.18); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
 /* Each card in the grid grows naturally; card inner content scrolls where needed. */
 .summary-stack > .table-card {
-  /* each card occupies ~30% of the .summary-stack height; account for gaps between cards */
-  flex: 0 0 calc((100% - 24px) / 3);
+  /* each card occupies ~40%/40%/20%-ish distribution; use 2.5 divisor for slightly larger cards */
+  flex: 0 0 calc((100% - 24px) / 2.5);
   height: 0; /* let flex-basis determine size */
   min-height: 0;
   box-sizing: border-box;

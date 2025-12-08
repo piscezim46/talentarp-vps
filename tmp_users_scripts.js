@@ -22,7 +22,7 @@ window.addEventListener('unhandledrejection', function(e){
 
 // Client-side logic for Users admin: modal open, department->team wiring, edit viewer, create modal
 const DEPARTMENTS = <?= $departments_json ?> || {};
-<?php $is_admin = in_array('users_view', $_SESSION['user']['access_keys'] ?? []) || (isset($user) && isset($user['role']) && $user['role'] === 'admin'); ?>
+<?php $roleNorm = isset($user['role']) ? strtolower(trim($user['role'])) : ''; $is_admin = in_array('users_view', $_SESSION['user']['access_keys'] ?? []) || in_array($roleNorm, ['admin','master admin','master_admin','master-admin','masteradmin'], true); ?>
 const IS_ADMIN = <?= json_encode($is_admin) ?>;
 document.addEventListener('DOMContentLoaded', function(){
     const openBtn = document.getElementById('openCreateBtn');

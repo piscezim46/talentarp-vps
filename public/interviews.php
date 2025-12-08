@@ -294,3 +294,21 @@ console.log('Server interviews count: <?= (int)count($interviews) ?>');
 <script src="assets/js/notify.js"></script>
 <!-- FullCalendar is loaded dynamically (ESM) by `scripts/interviews.js` using CDN that resolves dependencies. -->
 <script src="scripts/interviews.js"></script>
+<script>
+// If URL includes ?openInterview=ID, attempt to open the interview drawer after scripts load.
+(function(){
+  try{
+    const params = new URLSearchParams(window.location.search || '');
+    if (!params.has('openInterview')) return;
+    const id = params.get('openInterview');
+    if (!id) return;
+    // Wait for the interviews script to expose window.openInterview
+    const tryOpen = function(){
+      if (typeof window.openInterview === 'function') { try { window.openInterview(id); } catch(e) { console.warn('openInterview failed', e); } }
+      else { setTimeout(tryOpen, 150); }
+    };
+    // Start attempts after a short delay to let the script initialize
+    setTimeout(tryOpen, 80);
+  }catch(e){ /* ignore */ }
+})();
+</script>

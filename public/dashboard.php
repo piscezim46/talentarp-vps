@@ -130,10 +130,12 @@ try {
 
 $interviews = [];
 try {
-  $sqlI = "SELECT i.id, i.applicant_id, COALESCE(u.name,'') AS applicant_name, i.interview_datetime, i.status_id, COALESCE(s.name,'') AS status_name, i.created_at FROM interviews i LEFT JOIN interview_statuses s ON i.status_id = s.id LEFT JOIN applicants a ON a.applicant_id = i.applicant_id LEFT JOIN users u ON i.created_by = u.id WHERE ((LOWER(COALESCE(s.name,'')) NOT IN ('" . implode("','", array_map('addslashes', $terminalInterviewNames)) . "') ) OR (i.interview_datetime >= ?))" . _scope_clause('applicants','a', false) . " ORDER BY i.interview_datetime DESC LIMIT 500";
+  // Include interviews of all statuses (no server-side date filter) so canceled/completed are visible.
+  // Keep department scoping via _scope_clause; limit to recent 500 rows sorted by interview_datetime.
+  // Join positions via applicant -> position so we can display position, manager and location on the interview cards
+  $sqlI = "SELECT i.id, i.applicant_id, COALESCE(a.full_name,'') AS applicant_full_name, COALESCE(u.name,'') AS creator_name, i.interview_datetime, i.status_id, COALESCE(s.name,'') AS status_name, COALESCE(s.status_color,'') AS status_color, i.created_at, a.position_id, COALESCE(p.title,'') AS position_title, COALESCE(p.manager_name,'') AS position_manager_name, COALESCE(p.work_location,'') AS position_location FROM interviews i LEFT JOIN interview_statuses s ON i.status_id = s.id LEFT JOIN applicants a ON a.applicant_id = i.applicant_id LEFT JOIN positions p ON a.position_id = p.id LEFT JOIN users u ON i.created_by = u.id " . _scope_clause('applicants','a', false) . " ORDER BY i.interview_datetime DESC LIMIT 500";
   $stmtI = $conn->prepare($sqlI);
   if ($stmtI) {
-    $stmtI->bind_param('s', $monthAgo);
     $stmtI->execute();
     $resI = $stmtI->get_result();
     while ($r = $resI->fetch_assoc()) $interviews[] = $r;
@@ -338,6 +340,23 @@ $events = array_slice($events, 0, 10);
   .recent-list ul li { width:100%; box-sizing:border-box; }
   .recent-list .row { gap:6px; }
   .recent-list .small-muted { color: #6b7280; }
+  /* Dashboard layout heights: positions & applicants 40% each, interviews 25% (more room) */
+  .dashboard-container { display: flex; flex-direction: column; gap: 12px; min-height: calc(100vh - 160px); }
+  .dashboard-container > .table-card { box-sizing: border-box; overflow: hidden; }
+  .dashboard-container > .table-card:nth-of-type(1), .dashboard-container > .table-card:nth-of-type(2) { flex: 0 0 40%; }
+  .dashboard-container > .table-card:nth-of-type(3) { flex: 0 0 25%; }
+
+  /* Horizontal interviews list */
+  .interviews-row { display:flex; gap:12px; overflow-x:auto; padding:8px 4px; align-items:stretch; min-height: 100%; }
+  .interview-card { min-width: 240px; max-width: 360px; flex: 0 0 auto; border:1px solid rgba(0,0,0,0.06); border-radius:8px; padding:12px; background:#fff; box-shadow:0 1px 6px rgba(0,0,0,0.06); display:flex; flex-direction:column; justify-content:space-between; transition: transform .14s cubic-bezier(.2,.9,.2,1), box-shadow .14s cubic-bezier(.2,.9,.2,1); will-change: transform; cursor: pointer; height:100%; }
+  .interview-card:hover { transform: translateY(-8px); box-shadow: 0 16px 36px rgba(0,0,0,0.12); }
+  .interview-card:active { transform: translateY(-3px); box-shadow: 0 8px 18px rgba(0,0,0,0.10); }
+  .interview-card .when { font-size:15px; color:#111827; font-weight:600; }
+  .interview-card .countdown { display:inline-block; margin-left:8px; font-weight:700; color:#b91c1c; background:rgba(239,68,68,0.06); padding:2px 6px; border-radius:6px; font-size:13px; }
+  .interview-card .meta { font-size:13px; color:#6b7280; margin-top:6px; }
+  .interview-card .creator { color:#000; font-weight:600; margin-top:8px; }
+  .interview-card .app-id { color:#6b7280; font-weight:600; margin-left:6px; font-size:12px; }
+  .interview-card .status-pill { display:inline-block; padding:4px 8px; border-radius:999px; font-size:12px; margin-top:8px; }
 </style>
 
 <?php
@@ -524,6 +543,7 @@ try {
           <div class="action-group">
             <button type="button" class="timeframe-btn" data-target="interviews" data-range="today" title="Today">Today</button>
             <button type="button" class="timeframe-btn" data-target="interviews" data-range="week" title="Last Week">Last Week</button>
+            <button type="button" class="timeframe-btn" data-target="interviews" data-range="next-week" title="Next Week">Next Week</button>
             <div class="timeframe-split">
               <button type="button" id="interviewsMonthBtn" class="timeframe-btn" data-target="interviews" data-range="months-1" aria-haspopup="true" aria-expanded="false" title="Last Month">Last Month <span class="caret">▾</span></button>
               <div id="interviewsMonthMenu" class="timeframe-menu" role="menu" aria-hidden="true">
@@ -540,35 +560,8 @@ try {
         </div>
       </div>
       <div class="inner">
-        <div class="summary-row"><div>Total Interviews</div><div id="interviewsTotalSummary" class="value"><?= (int)$totalInterviews ?></div></div>
-        <div class="summary-row"><div>Today's Interviews</div><div class="value" style="color:#10b981;"><?= (int)$todaysInterviews ?></div></div>
-        <div class="summary-row"><div>This Week</div><div class="value" style="color:#3b82f6;"><?= (int)$weekInterviews ?></div></div>
-        <div style="padding-top:8px;">
-          <div class="small-muted">Upcoming / Recent Interviews</div>
-          <div id="recentInterviewsList" class="recent-list">
-          <?php if (!empty($interviews)): ?>
-            <ul class="recent-grid">
-              <?php foreach (array_slice($interviews, 0, 12) as $iv): ?>
-                <?php $dt = $iv['interview_datetime'] ?? $iv['created_at']; $age = htmlspecialchars(ago_days($iv['interview_datetime'] ?? $iv['created_at'] ?? '')); ?>
-                <li class="recent-item">
-                  <div class="row">
-                    <div class="row-ellipsis">
-                      <strong class="name-strong">Applicant #<?= htmlspecialchars($iv['applicant_id'] ?? '') ?></strong>
-                      <div class="small-muted"><?= htmlspecialchars($iv['status_name'] ?? '') ?></div>
-                    </div>
-                    <div class="muted-right muted-right-compact">
-                      <?= $dt ? htmlspecialchars($dt) : '—' ?>
-                      <div class="small-muted"><?= htmlspecialchars($iv['applicant_name'] ?? '') ?></div>
-                      <div class="small-muted muted-top"><?= $age ?> ago</div>
-                    </div>
-                  </div>
-                </li>
-              <?php endforeach; ?>
-            </ul>
-          <?php else: ?>
-            <div class="empty">No interviews to show.</div>
-          <?php endif; ?>
-          </div>
+        <div id="pendingInterviewsRow" class="interviews-row">
+          <!-- JS will render interviews horizontally here -->
         </div>
       </div>
     </div>
@@ -643,6 +636,21 @@ try {
 ?>
 const DASH_APPLICANT_STATUSES = <?php echo json_encode($applicantStatuses, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?>;
 
+<?php
+// Fetch interview statuses (id -> {id,name,status_color}) so dashboard can use DB-driven colors
+$dash_interview_statuses = [];
+try {
+  $sres = $conn->query("SELECT id, name, COALESCE(status_color,'') AS status_color FROM interview_statuses WHERE COALESCE(active,1) != 0 ORDER BY id");
+  if ($sres) {
+    while ($s = $sres->fetch_assoc()) {
+      $dash_interview_statuses[(string)$s['id']] = $s;
+    }
+    $sres->free();
+  }
+} catch (Throwable $_) { }
+?>
+const DASH_INTERVIEW_STATUSES_BY_ID = <?php echo json_encode($dash_interview_statuses, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?>;
+
 function parseDate(val){ const t = val ? new Date(val) : null; return (t && !isNaN(t)) ? t : null; }
 function fmtWhen(val){ const d = parseDate(val); if (!d) return '—'; return d.toLocaleString(); }
 
@@ -654,6 +662,10 @@ function filterByRange(rows, key, range){
   let start = new Date();
   if (range === 'today') { start.setHours(0,0,0,0); }
   else if (range === 'week') { start.setDate(start.getDate() - 7); start.setHours(0,0,0,0); }
+  else if (range === 'next-week') { // next 7 days
+    start.setHours(0,0,0,0);
+    // we'll compute end in the specific key handler below
+  }
   else if (typeof range === 'string' && range.startsWith('months')) {
     const parts = range.split(/[-_:]/);
     const months = parseInt(parts[1], 10) || 1;
@@ -674,6 +686,13 @@ function filterByRange(rows, key, range){
       }
       if (key === 'interviews') {
         const dt = parseDate(r.interview_datetime);
+        if (!dt) return false;
+        if (range === 'next-week') {
+          // include interviews from today through next 7 days
+          const end = new Date(start.getTime());
+          end.setDate(end.getDate() + 7);
+          return dt >= start && dt < end;
+        }
         return dt && dt >= start;
       }
     }catch(e){ return false; }
@@ -986,35 +1005,71 @@ function renderApplicants(range){
 }
 
 function renderInterviews(range){
-  // update ticket list and summary total
+  // Render interviews as horizontal pending interview cards with status color and creator
   const rows = filterByRange(DASH_INTERVIEWS, 'interviews', range || 'today');
-  const summaryEl = document.getElementById('interviewsTotalSummary'); if (summaryEl) {
-    const sv = (DASH_INTERVIEW_COUNTS && DASH_INTERVIEW_COUNTS[range]) ? DASH_INTERVIEW_COUNTS[range] : rows.length;
-    summaryEl.textContent = String(sv);
-  }
-  const listEl = document.getElementById('recentInterviewsList'); if (!listEl) return;
+  const listEl = document.getElementById('pendingInterviewsRow'); if (!listEl) return;
   if (!rows.length) { listEl.innerHTML = '<div class="empty">No interviews for this range.</div>'; return; }
-  const items = rows.slice(0, 12).map(r=>{
-    const when = r.interview_datetime || r.created_at || '';
+
+  // Use server-provided interview status colors when available
+  const statusById = (typeof DASH_INTERVIEW_STATUSES_BY_ID !== 'undefined' && DASH_INTERVIEW_STATUSES_BY_ID && typeof DASH_INTERVIEW_STATUSES_BY_ID === 'object') ? DASH_INTERVIEW_STATUSES_BY_ID : (typeof window !== 'undefined' && window.DASH_INTERVIEW_STATUSES_BY_ID ? window.DASH_INTERVIEW_STATUSES_BY_ID : {});
+  const items = rows.slice(0, 20).map(r=>{
+    const when = r.interview_datetime || '';
     const dt = parseDate(when);
+    const now = new Date();
     let ago = '';
+    let minutesLeft = null;
     if (dt) {
-      const diff = new Date() - dt;
-      if (diff < 86400*1000) ago = Math.max(1, Math.floor(diff/60000)) + 'm'; else ago = Math.floor(diff/86400000) + 'd';
+      const diffMs = dt.getTime() - now.getTime();
+      if (diffMs > 0 && diffMs <= 60 * 60 * 1000) {
+        minutesLeft = Math.ceil(diffMs / 60000);
+      } else if (diffMs <= 0) {
+        const diffPast = now.getTime() - dt.getTime();
+        if (diffPast < 86400*1000) ago = Math.max(1, Math.floor(diffPast/60000)) + 'm'; else ago = Math.floor(diffPast/86400000) + 'd';
+      }
     }
-    const applicantName = r.applicant_name || '';
-    const status = r.status_name || '';
-    // Build row so status appears under the Applicant # label (same structure as applicants list)
-    return '<li class="list-item-compact-col">'
-      + '<div class="row-ellipsis"><strong class="name-strong">'+escapeHtml('Applicant #' + (r.applicant_id||''))+'</strong><div class="small-muted">'+escapeHtml(status)+'</div></div>'
-      + '<div class="muted-right muted-right-compact">'+escapeHtml(when)
-      + (applicantName ? '<div class="small-muted">'+escapeHtml(applicantName)+'</div>' : '')
-      + '<div class="small-muted small-muted-sm muted-top">'+escapeHtml(ago ? (ago + ' ago') : '')+'</div>'
-      + '</div>'
-      + '</li>';
+    const applicantName = r.applicant_full_name || (r.applicant_name || '');
+    const creatorName = r.creator_name || '';
+    const status = (r.status_name || '').toString();
+    // determine color: prefer interview row's status_color, then DB map by id, then map by lowercase name
+    let statusColor = (r.status_color && r.status_color.toString().trim()) ? r.status_color.toString().trim() : '';
+    if (!statusColor && r.status_id && statusById[String(r.status_id)] && statusById[String(r.status_id)].status_color) statusColor = statusById[String(r.status_id)].status_color;
+    if (!statusColor) {
+      const nameKey = (status || '').toString().toLowerCase();
+      for (const k in statusById) { if ((statusById[k].name||'').toString().toLowerCase() === nameKey && statusById[k].status_color) { statusColor = statusById[k].status_color; break; } }
+    }
+    if (!statusColor) statusColor = '#d1d5db';
+    const statusTextColor = (function(hex){ try{ var h = (hex||'#000').replace('#',''); if (h.length===3) h = h.split('').map(c=>c+c).join(''); var r = parseInt(h.substring(0,2),16), g = parseInt(h.substring(2,4),16), b = parseInt(h.substring(4,6),16); var lum = 0.2126*r + 0.7152*g + 0.0722*b; return lum > 150 ? '#000000' : '#ffffff'; } catch(e){ return '#000000'; } })(statusColor);
+    const whenFmt = when ? escapeHtml(when) : '—';
+    const appId = r.applicant_id || '';
+    const displayName = applicantName ? escapeHtml(applicantName) : ('Applicant');
+    const positionTitle = r.position_title || '';
+    const positionManager = r.position_manager_name || '';
+    const positionLocation = r.position_location || '';
+    return '<div class="interview-card" data-interview-id="'+encodeURIComponent(r.id||'')+'">'
+      + '<div><span class="name-strong">'+displayName+'</span><span class="app-id">#'+escapeHtml(String(appId))+'</span></div>'
+      + '<div class="meta">'+(positionTitle ? ('Position: '+escapeHtml(positionTitle)) : 'Position: —')+' • '+(positionManager ? ('Manager: '+escapeHtml(positionManager)) : 'Manager: —')+' • '+(positionLocation ? ('Location: '+escapeHtml(positionLocation)) : 'Location: —')+'</div>'
+      + '<div class="creator">Created by: '+escapeHtml(creatorName)+'</div>'
+      + '<div class="when">Scheduled: '+whenFmt + (minutesLeft !== null ? (' <span class="countdown">' + String(minutesLeft) + 'm left</span>') : (ago ? (' <span class="small-muted" style="margin-left:6px;">' + escapeHtml(ago + ' ago') + '</span>') : '')) + '</div>'
+      + '<div><span class="status-pill" style="background:'+escapeHtml(statusColor)+';color:'+escapeHtml(statusTextColor)+'">'+escapeHtml(status||'')+'</span></div>'
+      + '</div>';
   }).join('');
-  listEl.innerHTML = '<ul style="list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(2,1fr);gap:8px;">'+items+'</ul>';
+  listEl.innerHTML = items;
 }
+
+// Make interview cards clickable: navigate to calendar and open drawer for the interview
+(function(){
+  document.addEventListener('click', function(e){
+    try{
+      const card = e.target.closest && e.target.closest('.interview-card');
+      if (!card) return;
+      const iid = card.getAttribute('data-interview-id') || card.dataset.interviewId || '';
+      if (!iid) return;
+      // navigate to interviews calendar and instruct it to open the interview drawer
+      const href = 'interviews.php?openInterview=' + encodeURIComponent(iid);
+      window.location.href = href;
+    }catch(err){ /* ignore */ }
+  });
+})();
 
 // Wire timeframe buttons
 // Use event delegation for timeframe buttons — more robust if buttons are re-rendered.
@@ -1113,11 +1168,16 @@ document.addEventListener('click', function (e) {
   document.addEventListener('click', function(e){ if (!btn.contains(e.target) && !menu.contains(e.target)) { menu.classList.remove('show'); btn.setAttribute('aria-expanded','false'); } });
 })();
 
-// Ensure default 'today' buttons are set active on load for each target group
-['positions','applicants','interviews'].forEach(function(t){
+// Ensure default buttons are set active on load for each target group
+['positions','applicants'].forEach(function(t){
   const b = document.querySelector('.timeframe-btn[data-target="'+t+'"][data-range="today"]');
   if (b) b.classList.add('active');
 });
+// For interviews default to next-week
+{
+  const b = document.querySelector('.timeframe-btn[data-target="interviews"][data-range="next-week"]');
+  if (b) b.classList.add('active');
+}
 
 // Row click handlers: open applicant/interview fragment
 document.getElementById('applicantTicketsBody')?.addEventListener('click', function(e){ const tr = e.target.closest('tr[data-applicant-id]'); if (!tr) return; const id = tr.getAttribute('data-applicant-id'); if (!id) return; window.location.href = 'get_applicant.php?applicant_id=' + encodeURIComponent(id); });
@@ -1128,7 +1188,7 @@ document.getElementById('interviewTicketsBody')?.addEventListener('click', funct
 // Initial render: determine applicants range from URL (supports ?appRange=today|week|months-N)
 (function(){
   var defPosRange = 'today';
-  var defIntRange = 'today';
+  var defIntRange = 'next-week';
   var appRange = 'today';
   try{
     const params = new URLSearchParams(window.location.search || '');
@@ -1160,6 +1220,6 @@ document.getElementById('interviewTicketsBody')?.addEventListener('click', funct
   // initial renders (positions/interviews default to today)
   try { renderPositions(defPosRange); } catch(e) { renderPositions('today'); }
   try { renderApplicants(appRange); } catch(e) { renderApplicants('today'); }
-  try { renderInterviews(defIntRange); } catch(e) { renderInterviews('today'); }
+  try { renderInterviews(defIntRange); } catch(e) { renderInterviews('next-week'); }
 })();
 </script>

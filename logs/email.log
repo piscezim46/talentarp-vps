@@ -1,0 +1,49 @@
+[2025-12-02 22:02:05] to=icv5ui@gmai.com subject=Your Talent ARP account success=0
+[2025-12-02 22:12:32] to=icv5ui@gmai.com subject=Your Talent ARP account success=0
+[2025-12-02 22:12:43] to=icv5ui@gmai.com subject=Your Talent ARP account success=0
+[2025-12-02 22:12:56] to=icv5ui@gmail.com subject=Your Talent ARP account success=0
+[2025-12-02 22:13:31] to=icv5ui@gmail.com subject=Your Talent ARP account success=0
+[2025-12-02 22:20:32] to=icv5ui@gmail.com subject=Your Talent ARP account success=0
+[2025-12-02 22:20:47] to=icv5ui@gmail.com subject=Your Talent ARP account success=0
+[2025-12-02 22:22:45] to=icv5ui@gmail.com subject=SMTP Test from Talent ARP success=0
+[2025-12-02 22:25:41] to=icv5ui@gmail.com subject=SMTP Test from Talent ARP success=0
+[2025-12-02 22:27:39] to=icv5ui@gmail.com subject=SMTP Test from Talent ARP success=0
+error=mail() returned false | last_error: mail(): Failed to connect to mailserver at "localhost" port 25, verify your "SMTP" and "smtp_port" setting in php.ini or use ini_set()
+[2025-12-03 05:09:11] to=icv5ui@gmail.com subject=Your Talent ARP account success=0
+error=mail() returned false | last_error: mail(): Failed to connect to mailserver at &quot;localhost&quot; port 25, verify your &quot;SMTP&quot; and &quot;smtp_port&quot; setting in php.ini or use ini_set()
+[2025-12-03 05:09:48] to=icv5ui@gmail.com subject=Your Talent ARP account success=0
+error=mail() returned false | last_error: mail(): Failed to connect to mailserver at &quot;localhost&quot; port 25, verify your &quot;SMTP&quot; and &quot;smtp_port&quot; setting in php.ini or use ini_set()
+[2025-12-03 05:25:15] to=icv5ui@gmail.com subject=Your Talent ARP account success=0
+error=mail() returned false | last_error: mail(): Failed to connect to mailserver at &quot;localhost&quot; port 25, verify your &quot;SMTP&quot; and &quot;smtp_port&quot; setting in php.ini or use ini_set()
+[2025-12-03 05:25:26] to=icv5ui@gmail.com subject=SMTP Test from Talent ARP success=0
+error=mail() returned false | last_error: mail(): Failed to connect to mailserver at "localhost" port 25, verify your "SMTP" and "smtp_port" setting in php.ini or use ini_set()
+[2025-12-03 05:32:01] to=icv5ui@gmail.com subject=Your Talent ARP account success=0
+error=mail() returned false | last_error: mail(): Failed to connect to mailserver at &quot;localhost&quot; port 25, verify your &quot;SMTP&quot; and &quot;smtp_port&quot; setting in php.ini or use ini_set()
+[2025-12-03 05:33:30] to=h.khder@boutiqaat.com subject=Your Talent ARP account success=0
+error=mail() returned false | last_error: mail(): Failed to connect to mailserver at &quot;localhost&quot; port 25, verify your &quot;SMTP&quot; and &quot;smtp_port&quot; setting in php.ini or use ini_set()
+[2025-12-03 05:36:20] to=icv5ui@gmail.com subject=SMTP Test from Talent ARP success=0
+error=mail() returned false | last_error: mail(): Failed to connect to mailserver at "localhost" port 25, verify your "SMTP" and "smtp_port" setting in php.ini or use ini_set()
+phpmailer_available=0
+autoload_used=none
+note=SMTP configured but PHPMailer not available; falling back to mail()
+[2025-12-03 06:02:19] to=icv5ui@gmail.com subject=SMTP Test from Talent ARP success=0
+error=PHPMailer unavailable: composer autoload not found at C:\xampp\htdocs\website\ticketing-system\includes/../vendor/autoload.php
+autoload_used=none
+[2025-12-03 06:04:27] to=h.khder@boutiqaat.com subject=Your Talent ARP account success=0
+error=PHPMailer unavailable: composer autoload not found at C:\xampp\htdocs\website\ticketing-system\includes/../vendor/autoload.php
+autoload_used=none
+[2025-12-03 06:09:22] to=icv5ui@gmail.com subject=SMTP Test from Talent ARP success=0
+error=PHPMailer unavailable: composer autoload not found at C:\xampp\htdocs\website\ticketing-system\includes/../vendor/autoload.php
+autoload_used=none
+[2025-12-03 06:09:54] to=h.khder@boutiqaat.com subject=Your Talent ARP account success=0
+error=PHPMailer unavailable: composer autoload not found at C:\xampp\htdocs\website\ticketing-system\includes/../vendor/autoload.php
+autoload_used=none
+[2025-12-05 12:16:54] to=tempo@gmail.com subject=Your Talent ARP account success=0
+error=PHPMailer unavailable: composer autoload not found at C:\xampp\htdocs\website\ticketing-system\includes/../vendor/autoload.php
+autoload_used=none
+[2025-12-07 18:17:22] to=Test@asdf subject=Your Talent ARP account success=0
+error=PHPMailer unavailable: composer autoload not found at C:\xampp\htdocs\website\ticketing-system\includes/../vendor/autoload.php
+autoload_used=none
+[2025-12-07 18:49:11] to=Test@35215 subject=Your Talent ARP account success=0
+error=PHPMailer unavailable: composer autoload not found at C:\xampp\htdocs\website\ticketing-system\includes/../vendor/autoload.php
+autoload_used=none
