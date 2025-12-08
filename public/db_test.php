@@ -6,8 +6,8 @@ error_reporting(E_ALL);
 
 // Database credentials
 $host = "localhost";
-$user = "root";
-$pass = "password"; // replace with your actual MySQL root password
+$user = "devuser";
+$pass = "Hayder.2085.user"; // replace with your actual MySQL root password
 $dbname = "ticketing_db";
 
 // Try connecting

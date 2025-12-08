@@ -246,7 +246,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
         <div class="login-title">Talent Acquisition</div>
         <div class="login-subtitle">Recruitment Platform</div>
-        <div class="login-quote">Test HELPING YOU HIRE WONDERFUL PEOPLE</div>
+        <div class="login-quote">Test 2 HELPING YOU HIRE WONDERFUL PEOPLE</div>
     </div>
 
     <div class="container">
