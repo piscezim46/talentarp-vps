@@ -4,6 +4,26 @@ require_once '../includes/db.php';
 // central user utilities for safe timestamp updates
 if (file_exists(__DIR__ . '/../includes/user_utils.php')) require_once __DIR__ . '/../includes/user_utils.php';
 
+// TEMPORARY: helper to fetch a user's display name by login (email or username)
+// This is intentionally short-lived and will be removed after debugging.
+function __tmp_get_user_name_by_login($conn, $login) {
+  try {
+    $sql = "SELECT COALESCE(name, user_name, email, '') AS display_name FROM users WHERE (email = ? OR user_name = ?) LIMIT 1";
+    $stmt = $conn->prepare($sql);
+    if (!$stmt) return '';
+    $stmt->bind_param('ss', $login, $login);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    if ($res) {
+      $row = $res->fetch_assoc();
+      $stmt->close();
+      return isset($row['display_name']) ? (string)$row['display_name'] : '';
+    }
+    $stmt->close();
+  } catch (Throwable $_) { /* ignore */ }
+  return '';
+}
+
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -18,7 +38,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $result = $stmt->get_result();
     $user = $result->fetch_assoc();
 
-    if ($user && password_verify($password, $user['password'])) {
+    // Determine if login is valid: prefer hashed verification, fallback to plaintext match
+    $stored = isset($user['password']) ? (string)$user['password'] : '';
+    $login_ok = false;
+    try {
+      if ($user && $stored !== '' && password_verify($password, $stored)) {
+        $login_ok = true;
+      }
+    } catch (Throwable $_) {
+      // ignore verification errors and fall back to direct compare
+    }
+    if (!$login_ok && $user && is_string($stored) && is_string($password) && $stored !== '') {
+      if (function_exists('hash_equals')) {
+        try { if (hash_equals($stored, $password)) $login_ok = true; } catch (Throwable $_) { if ($stored === $password) $login_ok = true; }
+      } else {
+        if ($stored === $password) $login_ok = true;
+      }
+    }
+
+    if ($user && $login_ok) {
         // If the user's password is older than their configured expiry days, mark them for force reset.
         // Behavior: if password_expiration_days = 0 -> never expire. If missing, fallback to 90 days.
         try {
@@ -164,7 +202,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: dashboard.php");
         exit;
     } else {
+      // If a user record exists but the password verification failed, show a temporary
+      // friendlier message including the user's name (debugging helper). This will be
+      // removed shortly — do not rely on this behavior for production messaging.
+      if ($user && !$login_ok) {
+        $tmpName = __tmp_get_user_name_by_login($conn, $login);
+        if ($tmpName) {
+          // simple, direct message as requested
+          $error = $tmpName . ', your password was wrong.';
+        } else {
+          $error = "Invalid credentials or account deactivated.";
+        }
+      } else {
         $error = "Invalid credentials or account deactivated.";
+      }
     }
 }
 ?>
