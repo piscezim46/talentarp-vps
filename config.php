@@ -1,8 +1,8 @@
 <?php
 define('DB_HOST', 'localhost');
 define('DB_USER', 'root');
-define('DB_PASS', 'password');
-define('DB_NAME', 'ticketing_db');
+define('DB_PASS', 'Hayder.2085.root');
+define('DB_NAME', 'talentarp2_db');
 
 // SMTP configuration placeholders (PHPMailer / SMTP required)
 // Fill these in with your Hostinger SMTP settings. Composer and PHPMailer
