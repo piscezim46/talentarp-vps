@@ -85,7 +85,7 @@ if (!empty($_SESSION['user']['force_password_reset']) && !in_array($currentScrip
 <div class="topbar">
     <div class="logo-section">
         <div class="site-logo site-logo--black" role="img" aria-label="Bugatti logo"></div>
-        <span class="tagline">HELPING YOU HIRE WONDERFUL PEOPLE</span>
+        <span class="tagline">Test 3 HELPING YOU HIRE WONDERFUL PEOPLE</span>
     </div>
     <?php
     // topbar user: minimal render — profile popup will be loaded lazily via AJAX
