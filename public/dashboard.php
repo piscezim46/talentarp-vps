@@ -133,7 +133,9 @@ try {
   // Include interviews of all statuses (no server-side date filter) so canceled/completed are visible.
   // Keep department scoping via _scope_clause; limit to recent 500 rows sorted by interview_datetime.
   // Join positions via applicant -> position so we can display position, manager and location on the interview cards
-  $sqlI = "SELECT i.id, i.applicant_id, COALESCE(a.full_name,'') AS applicant_full_name, COALESCE(u.name,'') AS creator_name, i.interview_datetime, i.status_id, COALESCE(s.name,'') AS status_name, COALESCE(s.status_color,'') AS status_color, i.created_at, a.position_id, COALESCE(p.title,'') AS position_title, COALESCE(p.manager_name,'') AS position_manager_name, COALESCE(p.work_location,'') AS position_location FROM interviews i LEFT JOIN interview_statuses s ON i.status_id = s.id LEFT JOIN applicants a ON a.applicant_id = i.applicant_id LEFT JOIN positions p ON a.position_id = p.id LEFT JOIN users u ON i.created_by = u.id " . _scope_clause('applicants','a', false) . " ORDER BY i.interview_datetime DESC LIMIT 500";
+  // Use positions-based scoping (same as applicants card) so dashboard respects local/global scope
+  // Use positions-based scoping (same as applicants card) and export position.department for client-side validation
+  $sqlI = "SELECT i.id, i.applicant_id, COALESCE(a.full_name,'') AS applicant_full_name, COALESCE(u.name,'') AS creator_name, i.interview_datetime, i.status_id, COALESCE(s.name,'') AS status_name, COALESCE(s.status_color,'') AS status_color, i.created_at, a.position_id, COALESCE(p.title,'') AS position_title, COALESCE(p.manager_name,'') AS position_manager_name, COALESCE(p.work_location,'') AS position_location, COALESCE(p.department,'') AS position_department FROM interviews i LEFT JOIN interview_statuses s ON i.status_id = s.id LEFT JOIN applicants a ON a.applicant_id = i.applicant_id LEFT JOIN positions p ON a.position_id = p.id LEFT JOIN users u ON i.created_by = u.id " . _scope_clause('positions','p', false) . " ORDER BY i.interview_datetime DESC LIMIT 500";
   $stmtI = $conn->prepare($sqlI);
   if ($stmtI) {
     $stmtI->execute();
@@ -197,7 +199,7 @@ foreach ($ranges as $k => $start) {
 foreach ($ranges as $k => $start) {
   try {
     // Join applicants so we can scope interviews to the user's department via applicants/positions
-    $sqlI = "SELECT COUNT(*) AS c FROM interviews i JOIN applicants a ON a.applicant_id = i.applicant_id WHERE i.interview_datetime >= ?" . _scope_clause('applicants','a', false);
+    $sqlI = "SELECT COUNT(*) AS c FROM interviews i JOIN applicants a ON a.applicant_id = i.applicant_id JOIN positions p ON a.position_id = p.id WHERE i.interview_datetime >= ?" . _scope_clause('positions','p', false);
     $stmtI = $conn->prepare($sqlI);
     if ($stmtI) {
       $stmtI->bind_param('s', $start);
@@ -251,9 +253,17 @@ try {
 // Interviews summary
 $totalInterviews = 0; $todaysInterviews = 0; $weekInterviews = 0;
 try {
-  $r = $conn->query('SELECT COUNT(*) AS c FROM interviews'); if ($r) { $totalInterviews = (int)(($r->fetch_assoc())['c'] ?? 0); $r->free(); }
-  $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM interviews WHERE DATE(interview_datetime) = CURDATE()"); if ($stmt) { $stmt->execute(); $r = $stmt->get_result()->fetch_assoc(); $todaysInterviews = (int)($r['c'] ?? 0); $stmt->close(); }
-  $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM interviews WHERE interview_datetime >= DATE_SUB(NOW(), INTERVAL 7 DAY)"); if ($stmt) { $stmt->execute(); $r = $stmt->get_result()->fetch_assoc(); $weekInterviews = (int)($r['c'] ?? 0); $stmt->close(); }
+  // Scope these summary counts using positions -> applicants -> interviews join so local/global scope applies
+  $qTotal = "SELECT COUNT(*) AS c FROM interviews i JOIN applicants a ON a.applicant_id = i.applicant_id JOIN positions p ON a.position_id = p.id" . _scope_clause('positions','p', true);
+  if ($r = $conn->query($qTotal)) { $totalInterviews = (int)(($r->fetch_assoc())['c'] ?? 0); $r->free(); }
+
+  $qToday = "SELECT COUNT(*) AS c FROM interviews i JOIN applicants a ON a.applicant_id = i.applicant_id JOIN positions p ON a.position_id = p.id WHERE DATE(i.interview_datetime) = CURDATE()" . _scope_clause('positions','p', false);
+  $stmt = $conn->prepare($qToday);
+  if ($stmt) { $stmt->execute(); $r = $stmt->get_result()->fetch_assoc(); $todaysInterviews = (int)($r['c'] ?? 0); $stmt->close(); }
+
+  $qWeek = "SELECT COUNT(*) AS c FROM interviews i JOIN applicants a ON a.applicant_id = i.applicant_id JOIN positions p ON a.position_id = p.id WHERE i.interview_datetime >= DATE_SUB(NOW(), INTERVAL 7 DAY)" . _scope_clause('positions','p', false);
+  $stmt = $conn->prepare($qWeek);
+  if ($stmt) { $stmt->execute(); $r = $stmt->get_result()->fetch_assoc(); $weekInterviews = (int)($r['c'] ?? 0); $stmt->close(); }
 } catch (Throwable $_) {}
 
 // Activity feed: merge recent events from positions (created), applicants_status_history, interviews (created)
@@ -348,6 +358,11 @@ $events = array_slice($events, 0, 10);
 
   /* Horizontal interviews list */
   .interviews-row { display:flex; gap:12px; overflow-x:auto; padding:8px 4px; align-items:stretch; min-height: 100%; }
+  /* Horizontal scrollbar styling (use accent color) */
+  .interviews-row::-webkit-scrollbar { height: 8px; }
+  .interviews-row::-webkit-scrollbar-track { background: transparent; }
+  .interviews-row::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 999px; }
+  .interviews-row { scrollbar-color: var(--accent) transparent; }
   .interview-card { min-width: 240px; max-width: 360px; flex: 0 0 auto; border:1px solid rgba(0,0,0,0.06); border-radius:8px; padding:12px; background:#fff; box-shadow:0 1px 6px rgba(0,0,0,0.06); display:flex; flex-direction:column; justify-content:space-between; transition: transform .14s cubic-bezier(.2,.9,.2,1), box-shadow .14s cubic-bezier(.2,.9,.2,1); will-change: transform; cursor: pointer; height:100%; }
   .interview-card:hover { transform: translateY(-8px); box-shadow: 0 16px 36px rgba(0,0,0,0.12); }
   .interview-card:active { transform: translateY(-3px); box-shadow: 0 8px 18px rgba(0,0,0,0.10); }
@@ -482,7 +497,7 @@ try {
             <div class="small-muted">Applicants by Status</div>
             <div class="status-stack">
               
-              <div class="status-card clickable" data-app-status="screening-pending"><div class="label">Screening Pending</div><div class="value val-primary"><span id="status-screening"><?= (int)$screeningPending ?></span></div></div>
+              <div class="status-card clickable" data-app-status="screening-pending"><div class="label">Created</div><div class="value val-primary"><span id="status-screening"><?= (int)$screeningPending ?></span></div></div>
               <div class="status-card clickable" data-app-status="shortlisted"><div class="label">Shortlisted</div><div class="value val-purple"><span id="status-shortlisted"><?= (int)$shortlisted ?></span></div></div>
               <div class="status-card clickable" data-app-status="hr-interviews"><div class="label">HR Interviews</div><div class="value val-indigo"><span id="status-hr"><?= (int)$hrInterviews ?></span></div></div>
               <div class="status-card clickable" data-app-status="manager-interviews"><div class="label">Manager Interviews</div><div class="value val-teal"><span id="status-manager"><?= (int)$managerInterviews ?></span></div></div>
@@ -528,9 +543,7 @@ try {
               <div id="progress-rej" title="Rejected <?= $pRej ?>%" class="progress-seg" style="width:<?= $pRej ?>%;background:#ef4444;"></div>
               <div id="progress-hire" title="Hired <?= $pHire ?>%" class="progress-seg" style="width:<?= $pHire ?>%;background:#10b981;"></div>
             </div>
-            <div class="progress-legend">
-              <span>Screen</span><span>Shortlist</span><span>HR</span><span>Mgr</span><span>Rejected</span><span>Hired</span>
-            </div>
+            
           </div>
         </div>
       </div>
@@ -538,7 +551,7 @@ try {
 
     <!-- Interviews Card -->
     <div class="table-card">
-      <div class="hdr"><h3>Interviews at a Glance</h3>
+      <div class="hdr"><h3>Interviews at a Glance</h3> <div id="interviewsCount" class="small-muted" style="margin-left:12px;">(0)</div>
         <div class="actions">
           <div class="action-group">
             <button type="button" class="timeframe-btn" data-target="interviews" data-range="today" title="Today">Today</button>
@@ -650,6 +663,10 @@ try {
 } catch (Throwable $_) { }
 ?>
 const DASH_INTERVIEW_STATUSES_BY_ID = <?php echo json_encode($dash_interview_statuses, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?>;
+
+// Export current user's scope and department name so client-side can enforce the same filter
+const DASH_USER_SCOPE = <?php echo json_encode(_user_scope(), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?>;
+const DASH_USER_DEPARTMENT = <?php echo json_encode(_user_department_name(), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?>;
 
 function parseDate(val){ const t = val ? new Date(val) : null; return (t && !isNaN(t)) ? t : null; }
 function fmtWhen(val){ const d = parseDate(val); if (!d) return '—'; return d.toLocaleString(); }
@@ -1006,9 +1023,21 @@ function renderApplicants(range){
 
 function renderInterviews(range){
   // Render interviews as horizontal pending interview cards with status color and creator
-  const rows = filterByRange(DASH_INTERVIEWS, 'interviews', range || 'today');
+  let rows = filterByRange(DASH_INTERVIEWS, 'interviews', range || 'today');
+  // Enforce scope client-side as a safety-net: if user scope is local, only show interviews
+  // whose linked position department matches the user's department (case-insensitive trimmed).
+  try {
+    if (typeof DASH_USER_SCOPE !== 'undefined' && DASH_USER_SCOPE === 'local') {
+      const dept = (typeof DASH_USER_DEPARTMENT !== 'undefined' && DASH_USER_DEPARTMENT) ? String(DASH_USER_DEPARTMENT).trim().toLowerCase() : '';
+      if (dept) {
+        rows = rows.filter(r => {
+          try { const pd = (r.position_department || '').toString().trim().toLowerCase(); return pd === dept; } catch(e) { return false; }
+        });
+      }
+    }
+  } catch(e) { /* ignore */ }
   const listEl = document.getElementById('pendingInterviewsRow'); if (!listEl) return;
-  if (!rows.length) { listEl.innerHTML = '<div class="empty">No interviews for this range.</div>'; return; }
+  if (!rows.length) { document.getElementById('interviewsCount') && (document.getElementById('interviewsCount').textContent = '(0)'); listEl.innerHTML = '<div class="empty">No interviews for this range.</div>'; return; }
 
   // Use server-provided interview status colors when available
   const statusById = (typeof DASH_INTERVIEW_STATUSES_BY_ID !== 'undefined' && DASH_INTERVIEW_STATUSES_BY_ID && typeof DASH_INTERVIEW_STATUSES_BY_ID === 'object') ? DASH_INTERVIEW_STATUSES_BY_ID : (typeof window !== 'undefined' && window.DASH_INTERVIEW_STATUSES_BY_ID ? window.DASH_INTERVIEW_STATUSES_BY_ID : {});
@@ -1054,6 +1083,8 @@ function renderInterviews(range){
       + '</div>';
   }).join('');
   listEl.innerHTML = items;
+  // Update counter to reflect the number of interviews currently displayed for the selected range
+  try { const cntEl = document.getElementById('interviewsCount'); if (cntEl) cntEl.textContent = '(' + String(rows.length) + ')'; } catch(e) {}
 }
 
 // Make interview cards clickable: navigate to calendar and open drawer for the interview

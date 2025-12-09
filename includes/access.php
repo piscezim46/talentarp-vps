@@ -108,11 +108,12 @@ function _scope_clause($table, $alias = '', $useWhere = false) {
             return $prefix . $a . "department_id = " . (int)$deptId;
         case 'positions':
             // positions table stores department as text in many places; compare with user's department name
+            // Use case-insensitive comparison and trim whitespace to be more robust against formatting differences.
             $dname = _user_department_name();
             if ($dname === '') return '';
             // escape single quotes in department name
             $dnameEsc = str_replace("'","\\'", $dname);
-            return $prefix . $a . "department = '" . $dnameEsc . "'";
+            return $prefix . "LOWER(TRIM(" . $a . "department)) = LOWER('" . $dnameEsc . "')";
         case 'applicants':
             // Applicants are associated to departments via their linked position (position_id).
             // Some queries already JOIN positions as alias 'p' and could reference p.department,
@@ -122,8 +123,8 @@ function _scope_clause($table, $alias = '', $useWhere = false) {
             if ($dname2 === '') return '';
             $dnameEsc2 = str_replace("'","\\'", $dname2);
             // Use applicants alias (if provided) to reference position_id, otherwise reference position_id directly.
-            // $a variable already includes trailing dot when alias provided.
-            return $prefix . "(EXISTS(SELECT 1 FROM positions p WHERE p.id = " . $a . "position_id AND p.department = '" . $dnameEsc2 . "'))";
+            // Use case-insensitive trimmed comparison on positions.department for robustness.
+            return $prefix . "(EXISTS(SELECT 1 FROM positions p WHERE p.id = " . $a . "position_id AND LOWER(TRIM(p.department)) = LOWER('" . $dnameEsc2 . "')))";
         default:
             return '';
     }
