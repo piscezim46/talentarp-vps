@@ -59,8 +59,7 @@ for ($i=0; $i < count($files['name']); $i++) {
     // set resume path
     $resume_path = 'uploads/applicants/' . $safe;
 
-    // decide parsing status and default status values
-    $parsing_status = 'queued';
+    // decide default status values
     $default_status_text = 'open';
     $default_status_id = 1;
 
@@ -76,32 +75,32 @@ for ($i=0; $i < count($files['name']); $i++) {
     $colRes && $colRes->free();
 
     if ($has_status_col) {
-        // insert using textual status column
+        // insert using textual status column (parsing_status removed)
         $stmt = $conn->prepare(
             "INSERT INTO applicants
-              (full_name, email, phone, resume_file, position_id, `status`, parsing_status, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, NOW())"
-        );
-        if (!$stmt) { @unlink($target); $errors[] = "DB prepare failed: " . $conn->error; continue; }
-        $stmt->bind_param('sssisss', $full_name, $email, $phone, $resume_path, $position_id, $default_status_text, $parsing_status);
-    } elseif ($has_status_id_col) {
-        // insert using numeric status_id column
-        $stmt = $conn->prepare(
-            "INSERT INTO applicants
-              (full_name, email, phone, resume_file, position_id, status_id, parsing_status, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, NOW())"
-        );
-        if (!$stmt) { @unlink($target); $errors[] = "DB prepare failed: " . $conn->error; continue; }
-        $stmt->bind_param('ssssiis', $full_name, $email, $phone, $resume_path, $position_id, $default_status_id, $parsing_status);
-    } else {
-        // fallback: insert without any status column
-        $stmt = $conn->prepare(
-            "INSERT INTO applicants
-              (full_name, email, phone, resume_file, position_id, parsing_status, created_at)
+              (full_name, email, phone, resume_file, position_id, `status`, created_at)
              VALUES (?, ?, ?, ?, ?, ?, NOW())"
         );
         if (!$stmt) { @unlink($target); $errors[] = "DB prepare failed: " . $conn->error; continue; }
-        $stmt->bind_param('ssssis', $full_name, $email, $phone, $resume_path, $position_id, $parsing_status);
+        $stmt->bind_param('sssiss', $full_name, $email, $phone, $resume_path, $position_id, $default_status_text);
+    } elseif ($has_status_id_col) {
+        // insert using numeric status_id column (parsing_status removed)
+        $stmt = $conn->prepare(
+            "INSERT INTO applicants
+              (full_name, email, phone, resume_file, position_id, status_id, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, NOW())"
+        );
+        if (!$stmt) { @unlink($target); $errors[] = "DB prepare failed: " . $conn->error; continue; }
+        $stmt->bind_param('ssssis', $full_name, $email, $phone, $resume_path, $position_id, $default_status_id);
+    } else {
+        // fallback: insert without any status column (parsing_status removed)
+        $stmt = $conn->prepare(
+            "INSERT INTO applicants
+              (full_name, email, phone, resume_file, position_id, created_at)
+             VALUES (?, ?, ?, ?, ?, NOW())"
+        );
+        if (!$stmt) { @unlink($target); $errors[] = "DB prepare failed: " . $conn->error; continue; }
+        $stmt->bind_param('ssssi', $full_name, $email, $phone, $resume_path, $position_id);
     }
 
     if (!$stmt->execute()) {

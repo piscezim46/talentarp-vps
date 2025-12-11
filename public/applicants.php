@@ -11,6 +11,13 @@ if (!isset($_SESSION['user'])) {
 
 $user = $_SESSION['user']; 
 
+// Enforce applicants view permission: redirect to dashboard with a friendly message when unauthorized
+if (!function_exists('_has_access') || !_has_access('applicants_view')) {
+  $msg = rawurlencode('This page is not within your access rights scope. Check with an admin.');
+  header('Location: dashboard.php?msg=' . $msg . '&type=error');
+  exit;
+}
+
 // Positions list (for linking applicant -> position)
 // Build positions grouped by department so modal can require department -> position selection
 $positions = [];
@@ -196,7 +203,6 @@ $sql = "
     a.years_experience,
     a.skills,
     a.resume_file,
-    a.parsing_status,
     a.experience_level,
     a.education_level,
     a.created_at,
@@ -427,10 +433,11 @@ document.addEventListener('DOMContentLoaded', function(){
           $yrs = isset($row['years_experience']) ? (int)$row['years_experience'] : '—';
           $resume = $row['resume_file'] ?? '';
           $created = $row['created_at'] ?? '';
-          $parsing = $row['parsing_status'] ?? '';
+          // parsing_status column removed from schema; use ai_result/last_error if needed
+          $parsing = '';
         ?>
         <tr class="app-row" data-applicant-id="<?= $appId ?>"
-          data-parsing="<?= htmlspecialchars($parsing) ?>"
+          
           data-position-id="<?= (int)($row['position_id'] ?? 0) ?>"
           data-position-title="<?= htmlspecialchars(strtolower($positionTitle)) ?>"
           data-manager="<?= htmlspecialchars($row['position_manager'] ?? '') ?>"

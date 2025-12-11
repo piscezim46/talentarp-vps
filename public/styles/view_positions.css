@@ -203,7 +203,7 @@ html, body { height: 100%; margin: 0; background: var(--bg-color, transparent); 
 
 
 /* Modal */
-.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1200; align-items: center; justify-content: center; }
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100000; align-items: center; justify-content: center; }
 .modal-overlay[style*="display: flex"], .modal-overlay[style*="display:flex"] { display: flex !important; }
 /* Modal: use same light theme as Create User / Create Department modals */
 .modal-card { width: 700px; max-width: 94%; border-radius: 12px; padding: 22px; box-sizing: border-box; margin: 0 auto; background: var(--surface, #ffffff); color: var(--text-main, #111827); box-shadow: none; border: 1px solid rgba(15,23,42,0.14); }

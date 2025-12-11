@@ -52,7 +52,7 @@ h2.section-title { margin: 0 0 12px 0; color: var(--accent); font-weight: 700; }
 #editMsg.edit-reset-success { color: #dc2626; font-weight: 700; }
 
 /* Modal (Create User) */
-.modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.35); align-items:center; justify-content:center; z-index:1200; }
+.modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.35); align-items:center; justify-content:center; z-index:100000; }
 .modal-overlay.show, .modal-overlay[style*="display:flex"] { display:flex; }
 .modal-card { background: var(--surface, #ffffff); padding:22px; border-radius:12px; width:720px; max-width:96%; box-shadow:none; color:var(--text-main); border:1px solid rgba(15,23,42,0.04); }
 .modal-card h3 { margin:0 0 8px 0; }

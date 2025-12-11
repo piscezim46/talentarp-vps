@@ -557,6 +557,86 @@ if (isset($_GET['created'])) {
         </div>
     </div>
 
+                    <script>
+                    // Intercept create position form submit to use AJAX and show Notify toasts
+                    (function(){
+                      const form = document.querySelector('#positionModal form[action="create_position.php"]');
+                      if (!form) return;
+
+                      async function submitForm(e) {
+                        try {
+                          e.preventDefault();
+                          // Commit any requirement input left in the field
+                          try { if (window.__commitReqInput) window.__commitReqInput(false); } catch(_){}
+
+                          // Collect form data
+                          const fd = new FormData(form);
+
+                          // Use fetch and mark as X-Requested-With for server side handling
+                          const res = await fetch(form.getAttribute('action'), {
+                            method: 'POST',
+                            body: fd,
+                            credentials: 'same-origin',
+                            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                          });
+
+                          if (res.status === 409) {
+                            // Duplicate
+                            let json = {};
+                            try { json = await res.json(); } catch(e){}
+                            const msg = (json && json.message) ? json.message : 'Duplicated position';
+                            try { if (window.Notify && Notify.push) Notify.push({ from: 'Positions', message: msg, color: '#dc2626' }); } catch(e){}
+                            return;
+                          }
+
+                          if (!res.ok) {
+                            let txt = 'Failed to create position';
+                            try { const j = await res.json(); if (j && j.error) txt = j.error || txt; } catch(e) {}
+                            try { if (window.Notify && Notify.push) Notify.push({ from: 'Positions', message: txt, color: '#dc2626' }); } catch(e){}
+                            return;
+                          }
+
+                          // Success
+                          let data = {};
+                          try { data = await res.json(); } catch(e){}
+                          const id = data && data.position_id ? data.position_id : null;
+                          try { if (window.Notify && Notify.push) Notify.push({ from: 'Positions', message: id ? ('Position created (ID #' + id + ')') : 'Position created', color: '#16a34a', duration: 6000 }); } catch(e){}
+
+                          // Close modal if present, then reload to show new record
+                          try { document.querySelector('#positionModal .modal-close-x')?.click(); } catch(e){}
+                          setTimeout(() => { try { window.location.reload(); } catch(e){} }, 600);
+
+                        } catch(err) {
+                          try { if (window.Notify && Notify.push) Notify.push({ from: 'Positions', message: 'An unexpected error occurred', color: '#dc2626' }); } catch(e){}
+                        }
+                      }
+
+                      form.addEventListener('submit', submitForm);
+                    })();
+                    </script>
+
+    <style>
+    /* Make the department select look like the readonly director/manager inputs when disabled
+       - remove native dropdown arrow, match background/border, and prevent pointer cursor */
+    #deptSelect.modal-input[disabled], #deptSelect.modal-input[readonly] {
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      appearance: none;
+      background-color: #f3f3f3;
+      border: 1px solid rgba(0,0,0,0.06);
+      padding: 8px 10px;
+      border-radius: 6px;
+      color: #374151;
+      cursor: default;
+      background-image: none !important;
+      box-shadow: none;
+    }
+    /* remove dropdown arrow in IE/Edge */
+    #deptSelect.modal-input::-ms-expand { display: none; }
+    /* remove focus outline for disabled state */
+    #deptSelect.modal-input[disabled]:focus { outline: none; }
+    </style>
+
     <script>
     // preserve existing teamsByDept variable usage
     const teamsByDept = <?= $teams_json ?> || {};
@@ -1095,6 +1175,12 @@ if (isset($_GET['created'])) {
       teamSelectEl.disabled = true;
       teamSelectEl.innerHTML = '<option value="">Unassigned</option>';
     }
+    // ensure department becomes editable again when resetting
+    if (deptSelectEl) {
+      deptSelectEl.disabled = false;
+      // optionally clear selection
+      try { deptSelectEl.selectedIndex = 0; } catch(e){}
+    }
     if (directorDisplay) directorDisplay.value = 'Unassigned';
     if (directorNameField) directorNameField.value = '';
     if (managerDisplay) managerDisplay.value = 'Unassigned';
@@ -1113,6 +1199,38 @@ if (isset($_GET['created'])) {
       modal.style.display = 'flex';
       const first = modal.querySelector('.modal-input, input, select, textarea');
       if (first && typeof first.focus === 'function') first.focus();
+      // Default department and team to current user's values when opening
+      try {
+        // prefer department id if available
+        if (typeof window.USER_DEPARTMENT_ID !== 'undefined' && window.USER_DEPARTMENT_ID) {
+          if (deptSelectEl) {
+            // set and trigger change to populate teams
+            deptSelectEl.value = String(window.USER_DEPARTMENT_ID);
+            deptSelectEl.dispatchEvent(new Event('change'));
+            // disable department selection (managers create positions within their own dept)
+            deptSelectEl.disabled = true;
+          }
+        }
+        // default team if available (prefer id, then name)
+        if (typeof window.USER_TEAM_ID !== 'undefined' && window.USER_TEAM_ID) {
+          if (teamSelectEl) {
+            // ensure teams are populated before setting value
+            try { teamSelectEl.value = String(window.USER_TEAM_ID); } catch(e) {}
+            teamSelectEl.disabled = false; // keep team editable
+            teamSelectEl.dispatchEvent(new Event('change'));
+          }
+        } else if (typeof window.USER_TEAM_NAME !== 'undefined' && window.USER_TEAM_NAME) {
+          if (teamSelectEl) {
+            // try to match by visible text
+            const name = String(window.USER_TEAM_NAME).toString().trim().toLowerCase();
+            for (let i=0;i<teamSelectEl.options.length;i++){
+              try { if ((teamSelectEl.options[i].text||'').toString().trim().toLowerCase() === name) { teamSelectEl.value = teamSelectEl.options[i].value; break; } } catch(e){}
+            }
+            teamSelectEl.disabled = false;
+            teamSelectEl.dispatchEvent(new Event('change'));
+          }
+        }
+      } catch(e){ /* ignore defaults errors */ }
     } catch(e){ console.error('openCreateModal error', e); }
   }
 

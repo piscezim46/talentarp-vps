@@ -9,8 +9,18 @@ if (function_exists('session_status')) {
 }
 require_once __DIR__ . '/../includes/db.php';
 
+// Ensure access helpers are available and enforce permission checks
+require_once __DIR__ . '/../includes/access.php';
+
 if (!isset($_SESSION['user'])) {
   header('Location: index.php'); exit;
+}
+
+// If user lacks interviews view permission, redirect to dashboard with an error
+if (!function_exists('_has_access') || !_has_access('interviews_view')) {
+  $msg = rawurlencode('This page is not within your access rights scope. Check with an admin.');
+  header('Location: dashboard.php?msg=' . $msg . '&type=error');
+  exit;
 }
 
 $activePage = 'interviews';

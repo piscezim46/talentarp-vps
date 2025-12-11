@@ -202,25 +202,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: dashboard.php");
         exit;
     } else {
-      // If a user record exists but the password verification failed, show a temporary
-      // friendlier message including the user's name (debugging helper). This will be
-      // removed shortly — do not rely on this behavior for production messaging.
-      if ($user && !$login_ok) {
-        $tmpName = __tmp_get_user_name_by_login($conn, $login);
-        if ($tmpName) {
-          // simple, direct message as requested
-          $error = $tmpName . ', your password was wrong.';
-        } else {
-          $error = "Invalid credentials or account deactivated.";
-        }
-      } else {
-        $error = "Invalid credentials or account deactivated.";
-      }
+      // Generic error message for invalid credentials or deactivated accounts.
+      // Removed debug behavior that disclosed a user's name on failed password attempts.
+      $error = "Invalid credentials or account deactivated.";
     }
-}
+  }
+
 ?>
 
-<?php $pageTitle = 'Login'; ?>
+<?php $pageTitle = 'Login | Talent ARP'; ?>
 
 <!DOCTYPE html>
 <html>
@@ -246,7 +236,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
         <div class="login-title">Talent Acquisition</div>
         <div class="login-subtitle">Recruitment Platform</div>
-        <div class="login-quote">Test 2 HELPING YOU HIRE WONDERFUL PEOPLE</div>
+        <div class="login-quote">HELPING YOU HIRE WONDERFUL PEOPLE</div>
     </div>
 
     <div class="container">
@@ -260,9 +250,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
               <div class="input-hint" id="emailHint" style="color: white;"></div>
             </div>
 
-            <div class="field">
+            <div class="field" style="position:relative;">
                 <label class="field-label" for="password">Password</label>
-                <input type="password" name="password" id="password" placeholder="Enter your password" required autocomplete="current-password" />
+                <div class="input-with-toggle" style="position:relative;">
+                  <input type="password" name="password" id="password" placeholder="Enter your password" required autocomplete="current-password" style="max-width: 100%; min-width: -webkit-fill-available; padding-right:42px;" />
+                  <!-- Interactive SVG placed directly so it doesn't block input focus; styled to sit inside the field -->
+                  <svg id="pwdToggleIcon" role="button" tabindex="0" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-pressed="false" aria-label="Show password" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);cursor:pointer;color:var(--muted);background:transparent;padding:4px;border-radius:4px;">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                </div>
                 <div class="input-hint" id="pwdHint" style="color: white;"></div>
             </div>
 
@@ -358,6 +355,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     el.addEventListener('blur', function(){ setHint(hintEl, ''); }, false);
   });
 })();
+</script>
+<script>
+// Show/Hide password toggle (kept inside the input field, no layout changes)
+document.addEventListener('DOMContentLoaded', function(){
+  var input = document.getElementById('password');
+  var icon = document.getElementById('pwdToggleIcon');
+  if (!input || !icon) return;
+
+  // Toggle handler used by both click on SVG and keyboard activation on SVG
+  function togglePasswordVisibility(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    var isPwd = input.getAttribute('type') === 'password';
+    if (isPwd) {
+      input.setAttribute('type','text');
+      icon.setAttribute('aria-pressed','true');
+      icon.setAttribute('aria-label','Hide password');
+      icon.setAttribute('title','Hide password');
+      // switch to eye-off icon
+      icon.innerHTML = '<path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.3 20.3 0 0 1 5.06-6.06"/><path d="M1 1l22 22"/>';
+    } else {
+      input.setAttribute('type','password');
+      icon.setAttribute('aria-pressed','false');
+      icon.setAttribute('aria-label','Show password');
+      icon.setAttribute('title','Show password');
+      // switch to eye icon
+      icon.innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"></path><circle cx="12" cy="12" r="3"></circle>';
+    }
+    try { input.focus(); } catch(e){}
+  }
+
+  // Only pointer events on SVG itself; button has pointer-events:none so clicks fall through except on icon
+  icon.addEventListener('click', togglePasswordVisibility);
+  icon.addEventListener('keydown', function(e){
+    if (e.key === 'Enter' || e.key === ' ') { togglePasswordVisibility(e); }
+  });
+});
 </script>
 <script>
 // Show top-right notify for forgot password guidance

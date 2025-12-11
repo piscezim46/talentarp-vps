@@ -156,7 +156,7 @@
 .pill { display:inline-block; padding:4px 10px; border-radius:999px; background:#f3f4f6; color:var(--text-main); font-size:12px; border:1px solid rgba(15,23,42,0.04); }
 
 /* Modal adjustments to match users/roles look */
-.modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.35); align-items:center; justify-content:center; z-index:1200; }
+.modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.35); align-items:center; justify-content:center; z-index:100000; }
 .modal-overlay.show, .modal-overlay[style*="display:flex"] { display:flex; }
 .modal-card { background: var(--surface, #ffffff); padding:22px; border-radius:12px; width:920px; max-width:96%; box-shadow:none; color:var(--text-main); border:1px solid rgba(15,23,42,0.04); }
 .modal-card h3 { margin:0 0 8px 0; }
@@ -261,8 +261,8 @@
    This approach is robust across browsers and avoids relying on nested
    stacking contexts that sometimes break position:sticky. */
 .app-list .table-scroll table { table-layout: fixed; width: 100%; }
-.app-list .table-scroll thead { display: block; }
-.app-list .table-scroll tbody { display: block; max-height: inherit; overflow-y: auto; }
+.app-list .table-scroll thead { display: table-header-group; }
+.app-list .table-scroll tbody { display: table-row-group; max-height: inherit; overflow-y: auto; }
 
 /* Column widths (tweak percentages if you prefer different sizing) */
 .app-list .table-scroll thead th:nth-child(1), .app-list .table-scroll tbody td:nth-child(1) { width: 2%; }

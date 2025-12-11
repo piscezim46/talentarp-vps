@@ -55,11 +55,32 @@ try {
     $chk->close();
     if ($crow) {
       // return a helpful message and the conflicting interview row
-      echo json_encode(['ok' => false, 'message' => 'Time slot conflicts with another event', 'conflict' => $crow]);
+      echo json_encode(['ok' => false, 'message' => 'Time slot conflicts with another event (creator)', 'conflict' => $crow]);
       exit;
     }
   }
 } catch (Throwable $_) { /* swallow DB errors here to avoid blocking scheduling if DB check fails unexpectedly */ }
+
+// Applicant-level conflict check: ensure the applicant doesn't already have another
+// interview overlapping the requested time window (20 minutes). This prevents
+// scheduling two interviews for the same applicant at effectively the same time.
+try {
+  if ($applicant_id > 0) {
+    $appChkSql = "SELECT id, interview_datetime, created_by FROM interviews WHERE applicant_id = ? AND (interview_datetime < DATE_ADD(?, INTERVAL 20 MINUTE) AND DATE_ADD(interview_datetime, INTERVAL 20 MINUTE) > ?) LIMIT 1";
+    $appChk = $conn->prepare($appChkSql);
+    if ($appChk) {
+      $appChk->bind_param('iss', $applicant_id, $interview_dt, $interview_dt);
+      $appChk->execute();
+      $aRes = $appChk->get_result();
+      $aRow = $aRes ? $aRes->fetch_assoc() : null;
+      $appChk->close();
+      if ($aRow) {
+        echo json_encode(['ok' => false, 'message' => 'Time slot conflicts with another interview for this applicant', 'conflict' => $aRow]);
+        exit;
+      }
+    }
+  }
+} catch (Throwable $_) { /* ignore applicant-level conflict check failures and proceed */ }
 
 // Determine canonical status for newly created interviews. We always override
 // the incoming `status_id` for new records to ensure the DB's 'Created'

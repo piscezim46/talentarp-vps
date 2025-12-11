@@ -402,6 +402,16 @@ try {
 ?>
 
 <main class="content-area">
+<?php
+  $flash = $_GET['msg'] ?? '';
+  $flash_type = $_GET['type'] ?? '';
+  if (!empty($flash)) {
+    // Use notify.js to show a toast instead of rendering an inline flash div.
+    $msg_js = json_encode($flash);
+    $color = ($flash_type === 'success') ? '#10b981' : '#dc2626';
+    echo "<script>(function(){try{if(window.Notify&&Notify.push){Notify.push({from:'System',message:" . $msg_js . ",color:'" . $color . "'});return;} }catch(e){} var s=document.createElement('script'); s.src='assets/js/notify.js'; s.onload=function(){ try{ if(window.Notify&&Notify.push) Notify.push({from:'System',message=" . $msg_js . ",color:'" . $color . "'}); }catch(e){} }; document.head.appendChild(s);})();</script>";
+  }
+?>
   <div class="dashboard-container">
     <div id="summaryStack" class="summary-stack">
     <!-- Positions Card -->
@@ -782,6 +792,36 @@ function renderPositions(range){
   const dashContainer = document.querySelector('.dashboard-container');
     if (dashContainer) {
     dashContainer.addEventListener('click', function(ev){
+      // helper to check client-side access keys and show notification when missing
+      function canNavigate(accessKey, fromLabel) {
+        try {
+          var keys = Array.isArray(window.USER_ACCESS_KEYS) ? window.USER_ACCESS_KEYS : [];
+          var ok = keys.indexOf(accessKey) !== -1;
+          if (!ok) {
+            if (window.Notify && Notify.push) {
+              Notify.push({ from: (fromLabel || 'Access'), message: 'This page is not within your access rights scope. Check with an admin.', color: '#dc2626' });
+            } else {
+              alert('This page is not within your access rights scope. Check with an admin.');
+            }
+            return false;
+          }
+          return true;
+        } catch(e) { return true; }
+      }
+      // Intercept dashboard 'View All' anchors for applicants/positions and enforce client-side access
+      try {
+        const anc = ev.target.closest && ev.target.closest('a[href^="applicants.php"], a[href^="view_positions.php"]');
+        if (anc) {
+          const href = anc.getAttribute('href') || '';
+          if (href.indexOf('applicants.php') !== -1) {
+            if (!canNavigate('applicants_view', 'Applicants')) { ev.preventDefault(); ev.stopPropagation(); return; }
+          }
+          if (href.indexOf('view_positions.php') !== -1) {
+            if (!canNavigate('positions_view', 'Positions')) { ev.preventDefault(); ev.stopPropagation(); return; }
+          }
+        }
+      } catch(e) { /* ignore */ }
+
       // If a recent applicant tile was clicked, navigate to applicants.php and open modal
       try {
         const appl = ev.target.closest && ev.target.closest('.list-item-compact[data-applicant-id]');
@@ -801,6 +841,7 @@ function renderPositions(range){
             else { start.setMonth(start.getMonth() - 1); start.setHours(0,0,0,0); }
             params.set('f-date-from', fmt(start)); params.set('f-date-to', fmt(today));
             params.set('openApplicant', aid);
+            if (!canNavigate('applicants_view', 'Applicants')) return;
             window.location.href = 'applicants.php?' + params.toString();
             return;
           }
@@ -840,6 +881,7 @@ function renderPositions(range){
         // navigate to applicants page with status filter
         params.set('f-status', decodeURIComponent(appStatus));
         const url = 'applicants.php?' + params.toString();
+        if (!canNavigate('applicants_view', 'Applicants')) return;
         window.location.href = url;
         return;
       }
@@ -847,6 +889,7 @@ function renderPositions(range){
       if (action === 'applicants-total') {
         // navigate to applicants list with date filters only (total card)
         const url = 'applicants.php?' + params.toString();
+        if (!canNavigate('applicants_view', 'Applicants')) return;
         window.location.href = url;
         return;
       }
@@ -854,6 +897,7 @@ function renderPositions(range){
       if (action === 'positions-total') {
         // navigate to positions list with date filters only
         const url = 'view_positions.php?' + params.toString();
+        if (!canNavigate('positions_view', 'Positions')) return;
         window.location.href = url;
         return;
       }
@@ -864,6 +908,7 @@ function renderPositions(range){
         if (dept) params.set('fDept', decodeURIComponent(dept).toLowerCase());
         if (team) params.set('fTeam', decodeURIComponent(team).toLowerCase());
         const url = 'view_positions.php?' + params.toString();
+        if (!canNavigate('positions_view', 'Positions')) return;
         window.location.href = url;
       }
     });
@@ -1100,9 +1145,24 @@ function renderInterviews(range){
       if (!card) return;
       const iid = card.getAttribute('data-interview-id') || card.dataset.interviewId || '';
       if (!iid) return;
-      // navigate to interviews calendar and instruct it to open the interview drawer
-      const href = 'interviews.php?openInterview=' + encodeURIComponent(iid);
-      window.location.href = href;
+          // navigate to interviews calendar and instruct it to open the interview drawer
+          // but first check client-side access keys and show a Notify if user lacks permission
+          try {
+            const hasAccess = Array.isArray(window.USER_ACCESS_KEYS) && window.USER_ACCESS_KEYS.indexOf('interviews_view') !== -1;
+            if (!hasAccess) {
+              if (window.Notify && Notify.push) {
+                Notify.push({ from: 'Interviews', message: 'This page is not within your access rights scope. Check with an admin.', color: '#dc2626' });
+              } else {
+                // fallback: show an alert
+                alert('This page is not within your access rights scope. Check with an admin.');
+              }
+              return;
+            }
+          } catch(e) {
+            // If any error checking access, fall back to navigating (server will still enforce access)
+          }
+          const href = 'interviews.php?openInterview=' + encodeURIComponent(iid);
+          window.location.href = href;
     }catch(err){ /* ignore */ }
   });
 })();

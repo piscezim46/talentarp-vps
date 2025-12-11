@@ -151,7 +151,7 @@ h2.section-title {
 .team-manager-name { color: var(--accent); font-weight:600; }
 
 /* Modal styled to match dashboard panels */
-.modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.35); align-items:center; justify-content:center; z-index:1200; }
+.modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.35); align-items:center; justify-content:center; z-index:100000; }
 .modal-overlay.show, .modal-overlay[style*="display:flex"] { display:flex; }
 
 .modal-card { background: var(--surface); padding:20px; border-radius:10px; width:572px; box-shadow:none; color:var(--text-main); border:1px solid var(--muted-1); }

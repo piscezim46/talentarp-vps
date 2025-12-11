@@ -77,6 +77,41 @@ if ($team_id > 0) {
 // fallback: if department_id not provided but department text provided in form
 if (empty($department_name)) $department_name = get('department', '');
 
+// Duplicate check: prevent the same creator from creating a position with
+// the exact same title and manager (case-insensitive, trimmed). If a
+// duplicate exists, return 409 for AJAX requests or redirect back with
+// an error message for normal form posts.
+try {
+    $dupeMsg = 'Duplicated position';
+    $dq = "SELECT id FROM positions WHERE TRIM(LOWER(title)) = TRIM(LOWER(?)) AND created_by = ? AND TRIM(LOWER(COALESCE(manager_name,''))) = TRIM(LOWER(COALESCE(?,''))) LIMIT 1";
+    if ($dstmt = $conn->prepare($dq)) {
+        $dstmt->bind_param('sis', $title, $created_by, $manager_name);
+        $dstmt->execute();
+        $dres = $dstmt->get_result();
+        if ($dres && $dres->num_rows > 0) {
+            // duplicate found
+            $dstmt->close();
+            // If AJAX/json expected, respond with 409 and JSON
+            $isAjax = (
+                (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')
+                || (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false)
+            );
+            if ($isAjax) {
+                http_response_code(409);
+                header('Content-Type: application/json');
+                echo json_encode(['error' => 'duplicate', 'message' => $dupeMsg]);
+                exit;
+            } else {
+                // Non-AJAX: redirect back to positions view with msg (dashboard will show via notify)
+                $msg = rawurlencode($dupeMsg);
+                header('Location: view_positions.php?msg=' . $msg . '&type=error');
+                exit;
+            }
+        }
+        $dstmt->close();
+    }
+} catch (Throwable $_) { /* ignore duplicate-check errors and continue to insertion */ }
+
 // collect bind variables (ensure they are set) including new fields
 $bind_title = $title;
 $bind_exp = $experience_level;

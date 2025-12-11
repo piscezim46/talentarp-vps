@@ -8,6 +8,68 @@ if (!empty($_SESSION['user']['force_password_reset']) && !in_array($currentScrip
     header('Location: set_password.php');
     exit;
 }
+
+// Audit: run early (before HTML output) so errors won't end up inside CSS
+if (!empty($_SESSION['user'])) {
+    $script = basename($_SERVER['SCRIPT_NAME'] ?? '');
+    $skip = ['bugatti-logo.php'];
+    if (!in_array($script, $skip, true)) {
+        if (file_exists(__DIR__ . '/audit.php')) require_once __DIR__ . '/audit.php';
+        try {
+            if (function_exists('audit_log_auto')) audit_log_auto('view', 'page', 0, null, ['script' => $script, 'query' => $_SERVER['QUERY_STRING'] ?? '']);
+        } catch (Throwable $_) { /* ignore audit errors */ }
+    }
+
+    // Generic POST CRUD capture (lightweight heuristic)
+    if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
+        $script = basename($_SERVER['SCRIPT_NAME'] ?? '');
+        $skipCrud = ['bugatti-logo.php'];
+        if (!in_array($script, $skipCrud, true)) {
+            if (file_exists(__DIR__ . '/audit.php')) require_once __DIR__ . '/audit.php';
+            try {
+                $lower = strtolower($script);
+                $action = 'create';
+                if (preg_match('/\bdelete\b|^delete_|_delete|delete-/i', $lower)) $action = 'delete';
+                elseif (preg_match('/^update|_update|^toggle|_toggle|^set_|^reset_/i', $lower)) $action = 'update';
+                else {
+                    $idKeys = ['id','applicant_id','position_id','user_id','department_id','team_id','role_id','interview_id','ticket_id','job_id','status_id'];
+                    foreach ($idKeys as $k) { if (isset($_POST[$k]) && $_POST[$k] !== '') { $action = 'update'; break; } }
+                }
+
+                $entity = preg_replace('/\.(php|phtml)$/i', '', $script);
+                $entity = preg_replace('/^(create|update|delete|add|set|toggle|reset|bulk|batch)[_\-]?/i', '', $entity);
+                $entity = preg_replace('/[_\-].*/', '', $entity);
+                $entity = $entity ?: 'unknown';
+
+                $entity_id = 0;
+                $idCandidates = ['id','applicant_id','position_id','user_id','department_id','team_id','role_id','interview_id','ticket_id','job_id','status_id'];
+                foreach ($idCandidates as $k) { if (isset($_POST[$k]) && $_POST[$k] !== '') { $entity_id = (int)$_POST[$k]; break; } }
+
+                $redactKeys = ['password','pwd','pass','token','csrf','secret'];
+                $postCopy = [];
+                foreach ($_POST as $k => $v) {
+                    $lk = strtolower($k);
+                    $sensitive = false;
+                    foreach ($redactKeys as $rk) { if (strpos($lk, $rk) !== false) { $sensitive = true; break; } }
+                    if ($sensitive) $postCopy[$k] = '[REDACTED]';
+                    else {
+                        if (is_array($v)) {
+                            $postCopy[$k] = $v;
+                        } else {
+                            $str = (string)$v;
+                            if (strlen($str) > 2000) $str = substr($str,0,2000) . '...[truncated]';
+                            $postCopy[$k] = $str;
+                        }
+                    }
+                }
+
+                if (function_exists('audit_log_auto')) {
+                    audit_log_auto($action, $entity, $entity_id, null, $postCopy);
+                }
+            } catch (Throwable $_) { /* ignore audit errors */ }
+        }
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -85,7 +147,7 @@ if (!empty($_SESSION['user']['force_password_reset']) && !in_array($currentScrip
 <div class="topbar">
     <div class="logo-section">
         <div class="site-logo site-logo--black" role="img" aria-label="Bugatti logo"></div>
-        <span class="tagline">Test 3 HELPING YOU HIRE WONDERFUL PEOPLE</span>
+        <span class="tagline">HELPING YOU HIRE WONDERFUL PEOPLE</span>
     </div>
     <?php
     // topbar user: minimal render — profile popup will be loaded lazily via AJAX
@@ -116,8 +178,98 @@ if (!empty($_SESSION['user']['force_password_reset']) && !in_array($currentScrip
             window.USER_SCOPE = <?= json_encode($_SESSION['user']['scope'] ?? 'local') ?>;
             window.USER_DEPARTMENT_ID = <?= json_encode($_SESSION['user']['department_id'] ?? null) ?>;
             window.USER_DEPARTMENT_NAME = <?= json_encode($_SESSION['user']['department_name'] ?? '') ?>;
+            window.USER_ACCESS_KEYS = <?= json_encode($_SESSION['user']['access_keys'] ?? []) ?>;
+            window.USER_TEAM_ID = <?= json_encode($_SESSION['user']['team_id'] ?? null) ?>;
+            window.USER_TEAM_NAME = <?= json_encode($_SESSION['user']['team'] ?? '') ?>;
         } catch(e) { /* ignore */ }
     })();
+</script>
+<script>
+// Global client-side audit: capture button clicks and send to server-side audit endpoint.
+(function(){
+    if (!window || !document) return;
+    const endpoint = 'log_audit.php';
+    const selector = 'button, [role="button"], .btn, a.btn, input[type="submit"], input[type="button"], [data-audit]';
+    const lastSeen = new WeakMap();
+    const debounceMs = 300; // avoid duplicate rapid clicks
+
+    function collectDataset(el){
+        const out = {};
+        try {
+            for (let i=0;i<el.attributes.length;i++){
+                const a = el.attributes[i];
+                if (!a.name || !a.name.startsWith('data-')) continue;
+                const k = a.name.slice(5);
+                out[k] = a.value;
+            }
+        } catch(e) {}
+        return out;
+    }
+
+    function summarizeElement(el){
+        return {
+            tag: el.tagName,
+            text: (el.innerText || el.value || '').toString().trim().slice(0,200),
+            classes: el.className || '',
+            href: el.getAttribute ? (el.getAttribute('href') || '') : '',
+            dataset: collectDataset(el)
+        };
+    }
+
+    function findEntity(el){
+        // prefer explicit data attributes
+        const e = el.closest && el.closest('[data-entity-type]');
+        if (e && e.dataset && e.dataset.entityType) return { type: e.dataset.entityType, id: e.dataset.entityId || 0 };
+        // try the element itself
+        if (el.dataset && (el.dataset.entityType || el.dataset.entity)) return { type: el.dataset.entityType || el.dataset.entity, id: el.dataset.entityId || 0 };
+        // fallback to page path
+        return { type: window.location.pathname || 'page', id: 0 };
+    }
+
+    function send(payload){
+        try {
+            const body = JSON.stringify(payload);
+            // Use navigator.sendBeacon when available for reliable background send
+            if (navigator.sendBeacon) {
+                try {
+                    navigator.sendBeacon(endpoint, body);
+                    return;
+                } catch(e) { /* fallthrough to fetch */ }
+            }
+            // Use fetch keepalive for modern browsers
+            if (window.fetch) {
+                fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, credentials: 'same-origin', keepalive: true }).catch(()=>{});
+            }
+        } catch(e) { /* ignore */ }
+    }
+
+    document.addEventListener('click', function(ev){
+        try {
+            const el = ev.target && ev.target.closest && ev.target.closest(selector);
+            if (!el) return;
+            // ignore if inside inputs/interactive controls where clicks are not meaningful
+            if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return;
+            const now = Date.now();
+            const last = lastSeen.get(el) || 0;
+            if (now - last < debounceMs) return;
+            lastSeen.set(el, now);
+
+            const elem = summarizeElement(el);
+            const found = findEntity(el);
+            const payload = {
+                action_type: 'click',
+                entity_type: String(found.type || 'page').slice(0,50),
+                entity_id: found.id ? parseInt(found.id,10) : 0,
+                element: elem,
+                page: window.location.pathname + (window.location.search || ''),
+                timestamp: new Date().toISOString(),
+                meta: { ua: navigator.userAgent ? (navigator.userAgent.slice(0,200)) : '' }
+            };
+            // avoid sending large or sensitive dataset values client-side; server will redact further
+            send(payload);
+        } catch(e) { /* ignore */ }
+    }, true);
+})();
 </script>
     <style>
     .topbar-avatar { transition: transform .08s ease, box-shadow .12s ease, background .12s ease; cursor: pointer; }

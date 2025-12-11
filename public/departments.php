@@ -70,7 +70,7 @@ if (file_exists(__DIR__ . '/../includes/navbar.php')) include __DIR__ . '/../inc
 /* Make the table container scrollable when there are many rows */
 #departmentsWrap { max-height: 100vh; overflow: auto; position: relative; -webkit-overflow-scrolling: touch; }
 /* Keep table header visible when scrolling and ensure it stays above rows */
-#departmentsTable thead th { position: sticky; top: 0; background: var(--panel, #fafafa); z-index: 9999; box-shadow: 0 2px 6px rgba(0,0,0,0.04); }
+#departmentsTable thead th { position: sticky; top: 0; background: var(--panel, #fafafa); z-index: 3; box-shadow: 0 2px 6px rgba(0,0,0,0.04); }
 /* Ensure rows don't escape above the sticky header: give them lower stacking context */
 #departmentsTable tbody tr { position: relative; z-index: 0; }
 </style>
