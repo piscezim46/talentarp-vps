@@ -401,6 +401,19 @@ document.addEventListener('DOMContentLoaded', function(){
         <!-- two-column layout: left = scrollable list, right = detail card -->
         <div class="app-layout">
             <div class="app-list">
+              <style>
+                /* Relax table widths: let content size naturally, but enforce small widths for selection/ID */
+                .users-table { table-layout: auto; width: 100%; }
+                .users-table th.col-select, .users-table td.col-select { width: 2%; min-width: 28px; }
+                .users-table th.col-id, .users-table td.col-id { width: 3%; min-width: 40px; }
+                /* Allow other columns to flex; wrap long text for readability */
+                .users-table th, .users-table td { white-space: normal; vertical-align: middle; }
+                .users-table td { padding: 8px 10px; }
+                @media (max-width: 900px) {
+                  .users-table th.col-select, .users-table td.col-select { width: 3%; }
+                  .users-table th.col-id, .users-table td.col-id { width: 5%; }
+                }
+              </style>
               <table class="users-table table-scroll">
       <thead>
         <tr>
@@ -413,6 +426,10 @@ document.addEventListener('DOMContentLoaded', function(){
           <th>Full Name</th>
           <th>Age</th>
           <th>Gender</th>
+          <th>Nationality</th>
+          <th>Degree</th>
+          <th>Experience</th>
+          <th>Created At</th>
         </tr>
       </thead>
       <tbody id="applicants-body">
