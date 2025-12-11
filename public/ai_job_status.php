@@ -11,7 +11,7 @@ if ($job) {
 // fallback: query applicant parsing_status
 $app = intval($_GET['applicant_id'] ?? 0);
 if ($app) {
-    $r = $conn->query("SELECT applicant_id, parsing_status, ai_result, last_error, attempts, updated_at FROM applicants WHERE applicant_id = " . $app)->fetch_assoc();
+    $r = $conn->query("SELECT applicant_id, ai_result, last_error, attempts, updated_at FROM applicants WHERE applicant_id = " . $app)->fetch_assoc();
     if (!$r) { echo json_encode(['error'=>'not found']); exit; }
     echo json_encode($r);
     exit;

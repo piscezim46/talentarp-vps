@@ -12,7 +12,7 @@ set_time_limit(120);
 function mark_job_failed($conn, $job_id, $applicant_id, $err) {
     $e = $conn->real_escape_string(substr($err,0,2000));
     if ($job_id) $conn->query("UPDATE ai_jobs SET status='failed', last_error='{$e}', updated_at=NOW() WHERE job_id=" . intval($job_id));
-    if ($applicant_id) $conn->query("UPDATE applicants SET parsing_status='failed', last_error='{$e}', updated_at=NOW() WHERE applicant_id=" . intval($applicant_id));
+    if ($applicant_id) $conn->query("UPDATE applicants SET last_error='{$e}', updated_at=NOW() WHERE applicant_id=" . intval($applicant_id));
 }
 
 // pick one ai_jobs queued row
@@ -22,7 +22,7 @@ $job = $res ? $res->fetch_assoc() : null;
 $use_from_applicants = false;
 if (!$job) {
     // fallback: pick one queued applicant (legacy flow)
-    $r = $conn->query("SELECT applicant_id, resume_file, attempts FROM applicants WHERE parsing_status='queued' ORDER BY created_at LIMIT 1 FOR UPDATE")->fetch_assoc();
+    $r = $conn->query("SELECT applicant_id, resume_file, attempts FROM applicants WHERE (ai_result IS NULL OR ai_result = '') ORDER BY created_at LIMIT 1 FOR UPDATE")->fetch_assoc();
     if (!$r) { echo "No queued jobs\n"; exit(0); }
     $job = [
         'job_id' => null,
@@ -50,7 +50,7 @@ if (!$resume_path || !file_exists($resume_path)) {
 if ($job_id) {
     $conn->query("UPDATE ai_jobs SET status='processing', attempts=attempts+1, updated_at=NOW() WHERE job_id=" . $job_id);
 }
-$conn->query("UPDATE applicants SET parsing_status='processing', attempts=attempts+1, updated_at=NOW() WHERE applicant_id=" . $applicant_id);
+    $conn->query("UPDATE applicants SET attempts=attempts+1, updated_at=NOW() WHERE applicant_id=" . $applicant_id);
 
 // Extraction: try ChatPDF if key present, else call local extractor service
 $parsed = null;
@@ -127,10 +127,9 @@ $gender = $parsed['Gender (if mentioned)'] ?? ($parsed['gender'] ?? null);
 $nationality = $parsed['Nationality'] ?? ($parsed['nationality'] ?? null);
 $years_experience = isset($parsed['Total years of professional experience']) ? intval($parsed['Total years of professional experience']) : (isset($parsed['years_experience']) ? intval($parsed['years_experience']) : null);
 $skills = $parsed['List of all skills mentioned (comma separated)'] ?? (is_array($parsed['skills'] ?? null) ? implode(', ', $parsed['skills']) : ($parsed['skills'] ?? null));
-$ai_summary = $parsed['One paragraph summary of professional profile'] ?? ($parsed['description'] ?? null);
 $ai_result_json = json_encode($parsed);
 
-// update applicants row
+// update applicants row (ai_summary and parsing_status removed)
 $upd = $conn->prepare("
     UPDATE applicants SET
       full_name = COALESCE(?, full_name),
@@ -143,16 +142,14 @@ $upd = $conn->prepare("
       nationality = COALESCE(?, nationality),
       years_experience = COALESCE(?, years_experience),
       skills = COALESCE(?, skills),
-      ai_summary = COALESCE(?, ai_summary),
       ai_result = ?,
-      parsing_status = 'parsed',
       updated_at = NOW()
     WHERE applicant_id = ?
 ");
 if (!$upd) { mark_job_failed($conn,$job_id,$applicant_id,"prepare_failed: ".$conn->error); exit(1); }
 
 $upd->bind_param(
-    'ssssssissssi',
+    'sssssississi',
     $full_name,
     $email,
     $phone,
@@ -163,7 +160,6 @@ $upd->bind_param(
     $nationality,
     $years_experience,
     $skills,
-    $ai_summary,
     $ai_result_json,
     $applicant_id
 );

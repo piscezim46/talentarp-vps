@@ -151,19 +151,17 @@ if ($role_applied !== '' || $department !== '' || $note !== '') {
 }
 
 // Insert into applicants table as a queued job (uses applicants as queue)
-$parsing_status = 'queued';
 $attempts = 0;
 
-$ins = $conn->prepare("INSERT INTO applicants (resume_file, ai_summary, parsing_status, ai_result, attempts, last_error, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())");
+$ins = $conn->prepare("INSERT INTO applicants (resume_file, ai_result, attempts, last_error, created_at) VALUES (?, ?, ?, ?, NOW())");
 if (!$ins) {
     http_response_code(500);
     echo json_encode(['error' => 'DB prepare failed: ' . $conn->error]);
     exit;
 }
-$ai_summary = null;
 $ai_result_json = null;
 $last_err = null;
-$ins->bind_param('ssssis', $resume_path_for_db, $ai_summary, $parsing_status, $ai_result_json, $attempts);
+$ins->bind_param('ssis', $resume_path_for_db, $ai_result_json, $attempts, $last_err);
 if (!$ins->execute()) {
     http_response_code(500);
     echo json_encode(['error' => 'DB insert failed: ' . $ins->error]);

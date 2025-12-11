@@ -100,12 +100,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['resumes'])) {
         $stmt = $conn->prepare("
             INSERT INTO applicants
             (full_name, email, phone, linkedin, degree, age, gender, nationality,
-             years_experience, skills, resume_file, ai_summary, parsing_status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             years_experience, skills, resume_file, ai_result)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
 
         $stmt->bind_param(
-            "ssssisssissss",
+            "ssssisssisss",
             $parsed["Full name of the candidate"],
             $parsed["Email address"],
             $parsed["Phone number"],
@@ -117,8 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['resumes'])) {
             $parsed["Total years of professional experience"],
             $parsed["List of all skills mentioned"],
             $target,
-            json_encode($parsed),
-            $status = "parsed"
+            json_encode($parsed)
         );
 
         if ($stmt->execute()) {
