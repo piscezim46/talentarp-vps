@@ -4,6 +4,13 @@ session_start();
 require_once __DIR__ . '/../includes/db.php';
 
 if (!isset($_SESSION['user'])) {
+    $accept = $_SERVER['HTTP_ACCEPT'] ?? '';
+    if (strpos($accept, 'application/json') !== false || (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')) {
+        http_response_code(403);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['ok' => false, 'error' => 'unauthorized', 'message' => 'Access denied']);
+        exit;
+    }
     http_response_code(403);
     echo "Access denied";
     exit;
@@ -47,14 +54,58 @@ $processed = 0;
 $errors = [];
 
 for ($i=0; $i < count($files['name']); $i++) {
-    if ($files['error'][$i] !== UPLOAD_ERR_OK) { $errors[] = "Upload error for {$files['name'][$i]}"; continue; }
-    $orig = basename($files['name'][$i]);
+    $orig = basename($files['name'][$i] ?? '');
+    $fileErr = $files['error'][$i] ?? UPLOAD_ERR_NO_FILE;
+    $tmpName = $files['tmp_name'][$i] ?? '';
+    $fileSize = $files['size'][$i] ?? 0;
+
+    if ($fileErr !== UPLOAD_ERR_OK) {
+        $errors[] = "Upload error for {$orig}: code {$fileErr}";
+        upload_debug_log("UPLOAD_ERR for {$orig}: code={$fileErr} size={$fileSize}");
+        continue;
+    }
+
     $ext = strtolower(pathinfo($orig, PATHINFO_EXTENSION));
-    if ($ext !== 'pdf') { $errors[] = "Skipped non-pdf: {$orig}"; continue; }
+    if ($ext !== 'pdf') { $errors[] = "Skipped non-pdf: {$orig}"; upload_debug_log("SKIP non-pdf: {$orig} ext={$ext} size={$fileSize}"); continue; }
+
+    if (!is_uploaded_file($tmpName)) {
+        $errors[] = "tmp_missing_or_invalid: {$orig}";
+        upload_debug_log("INVALID_TMP for {$orig}: tmpName={$tmpName} exists=" . (file_exists($tmpName)?'1':'0'));
+        upload_debug_log('upload_tmp_dir=' . ini_get('upload_tmp_dir') . ' sys_get_temp_dir=' . sys_get_temp_dir());
+        continue;
+    }
+
+    // ensure upload dir exists and is writable
+    if (!is_dir($uploadDir) && !@mkdir($uploadDir, 0755, true)) {
+        $errors[] = "server_error_upload_dir";
+        upload_debug_log("FAILED_MKDIR uploadDir={$uploadDir} for {$orig}; is_dir=" . (is_dir($uploadDir)?'1':'0'));
+        continue;
+    }
+    if (!is_writable($uploadDir)) {
+        $errors[] = "upload_dir_not_writable";
+        upload_debug_log("UPLOAD_DIR_NOT_WRITABLE {$uploadDir} perms=" . substr(sprintf('%o', fileperms($uploadDir)), -4) . " for {$orig}");
+        continue;
+    }
 
     $safe = time() . '_' . bin2hex(random_bytes(6)) . '_' . preg_replace('/[^A-Za-z0-9._-]/','_', $orig);
     $target = $uploadDir . $safe;
-    if (!move_uploaded_file($files['tmp_name'][$i], $target)) { $errors[] = "Failed move: {$orig}"; continue; }
+    if (!move_uploaded_file($tmpName, $target)) {
+        $errors[] = "Failed move: {$orig}";
+        $diag = [
+            'file' => $orig,
+            'tmpName' => $tmpName,
+            'target' => $target,
+            'tmp_exists' => file_exists($tmpName) ? 1 : 0,
+            'upload_dir_exists' => is_dir($uploadDir) ? 1 : 0,
+            'upload_dir_perms' => substr(sprintf('%o', fileperms($uploadDir)), -4),
+            'php_upload_tmp_dir' => ini_get('upload_tmp_dir'),
+            'sys_temp_dir' => sys_get_temp_dir(),
+            'file_error_code' => $fileErr,
+            'file_size' => $fileSize,
+        ];
+        upload_debug_log('MOVE_FAILED: ' . json_encode($diag));
+        continue;
+    }
 
     // set resume path
     $resume_path = 'uploads/applicants/' . $safe;

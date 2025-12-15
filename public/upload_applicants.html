@@ -32,6 +32,12 @@
         const formData = new FormData(e.target);
 
         const res = await fetch('upload_applicants.php', { method: 'POST', body: formData });
+        // handle unauthorized (403) explicitly
+        if (res.status === 403) {
+          await ensureNotify();
+          try { Notify.push({ from: 'Applicants', message: 'Upload failed: Access denied (please sign in)', color: '#dc2626' }); } catch(e){}
+          const txt = await res.text(); document.getElementById('results').innerHTML = '<pre>' + txt.replace(/</g,'&lt;') + '</pre>'; return;
+        }
         // Try to parse JSON; fall back to text
         let json;
         try { json = await res.json(); } catch(err) { json = null; }
