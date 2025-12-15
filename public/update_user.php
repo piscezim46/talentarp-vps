@@ -40,6 +40,13 @@ $role = trim($input['role'] ?? '');
 $role_id = isset($input['role_id']) && $input['role_id'] !== '' ? intval($input['role_id']) : null;
 $department_id = isset($input['department_id']) ? intval($input['department_id']) : 0;
 $team_id = isset($input['team_id']) ? intval($input['team_id']) : 0;
+
+// Prevent foreign key constraint error: require a team when a department is selected
+if (($department_id > 0) && ($team_id === 0)) {
+    http_response_code(400);
+    echo json_encode(['error' => 'Department selected but no team selected']);
+    exit;
+}
 $manager_name = trim($input['manager_name'] ?? ''); // ignored if present
 $director_name = trim($input['director_name'] ?? ''); // ignored if present
 $password_expiration_days = isset($input['password_expiration_days']) ? intval($input['password_expiration_days']) : null;

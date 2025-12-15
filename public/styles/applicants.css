@@ -370,7 +370,7 @@
    (set by JS or server) are allowed to show. Keeping the rule scoped avoids
    masking dynamic inline styles used for status badges/buttons. */
 #applicantViewerModal .modal-card *:not(.status-badge):not(.status-pill):not(.pill):not(.status-action-btn):not(.status-action):not(.btn):not(.btn-primary) ,
-#createApplicantModal .modal-card *:not(.status-badge):not(.status-pill):not(.pill):not(.status-action-btn):not(.status-action) {
+#createApplicantModal .modal-card *:not(.status-badge):not(.status-pill):not(.pill):not(.status-action-btn):not(.status-action):not(.skill-chip):not(.skill-text):not(.btn):not(.btn-primary) {
     color: var(--text-main, #111827) !important;
 }
 
@@ -419,8 +419,8 @@
 .field.inline { display:flex; gap:10px; }
 .field.inline > div { flex:1; }
 
-/* Modal actions default spacing used by create modal */
-.modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:12px; }
+
+
 
 @media (max-width: 980px) {
     .app-list { height: 60vh; }
@@ -513,7 +513,7 @@
 .modal-card .modal-close:hover { background: rgba(0,0,0,0.04); color: var(--text-main); box-shadow: 0 0 0 3px rgba(53,156,246,0.06); }
 
 /* Modal action buttons (Cancel / Create) */
-.modal-card .modal-actions { padding:8px 12px; border-radius:8px; border:1px solid rgba(15,23,42,0.06); background:var(--panel); color:var(--text-main); cursor:pointer; }
+.modal-card{ padding:8px 12px; border-radius:8px; border:1px solid rgba(15,23,42,0.06); background:var(--panel); color:var(--text-main); cursor:pointer; }
 .modal-card .modal-actions .btn.primary, .modal-card .modal-actions .btn.primary:hover { background: var(--accent); color: #fff; border-color: color-mix(in srgb, var(--accent) 85%, transparent); }
 .btn{
     color: rgb(255, 255, 255);
@@ -657,3 +657,6 @@
 .btn-orange { background: #f97316; color: #fff; border: none; }
 
 
+#applicantViewerModal{
+    z-index: 100;
+}

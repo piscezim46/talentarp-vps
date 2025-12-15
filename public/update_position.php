@@ -131,9 +131,11 @@ try {
     $ignored[] = $k;
   }
 
-  // permission: any non-status field update requires Open + creator
+  // permission: any non-status field update requires Open (1) or Re-open (12) + creator
   if ($nonStatusChanged) {
-    if ((int)$cur['status_id'] !== 1 || !$currentUserId || (int)$cur['created_by'] !== $currentUserId) {
+    $curStatus = (int)$cur['status_id'];
+    $allowedStatusesForEdit = [1, 12];
+    if (!in_array($curStatus, $allowedStatusesForEdit, true) || !$currentUserId || (int)$cur['created_by'] !== $currentUserId) {
       out(['ok'=>false,'error'=>'access_denied','message'=>'Access limited to creator'], 403);
     }
   }
@@ -225,6 +227,28 @@ try {
   $s->execute();
   $row = $s->get_result()->fetch_assoc();
   $s->close();
+
+  // If we attempted a status change but the row doesn't reflect it, try one more time.
+  // This handles a rare race/trigger case where the first update may not persist immediately.
+  if ($statusChanged && isset($toStatus) && isset($row['status_id']) && (int)$row['status_id'] !== (int)$toStatus) {
+    try {
+      error_log('update_position: status mismatch after commit, retrying update for position ' . $id . ' to status ' . $toStatus);
+      $retry = $conn->prepare('UPDATE positions SET status_id = ?, updated_at = NOW() WHERE id = ? LIMIT 1');
+      if ($retry) {
+        $retry->bind_param('ii', $toStatus, $id);
+        $retry->execute();
+        $retry->close();
+      }
+      // re-select
+      $s2 = $conn->prepare("SELECT p.*, COALESCE(s.status_name,'') AS status_name, COALESCE(s.status_color,'') AS status_color FROM positions p LEFT JOIN positions_status s ON p.status_id=s.status_id WHERE p.id=? LIMIT 1");
+      if ($s2) {
+        $s2->bind_param('i', $id);
+        $s2->execute();
+        $row = $s2->get_result()->fetch_assoc();
+        $s2->close();
+      }
+    } catch (Throwable $_) { /* ignore retry failures */ }
+  }
 
   // Determine which requested changes were actually applied by comparing
   // the freshly selected row with the submitted input values. This avoids

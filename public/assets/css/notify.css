@@ -3,7 +3,8 @@
   position: fixed;
   top: 16px;
   right: 16px;
-  z-index: 99999;
+  /* place toasts above modal overlays (which use 100000) */
+  z-index: 2147483647; /* highest safe integer for z-index */
   display: flex;
   flex-direction: column;
   gap: 10px;

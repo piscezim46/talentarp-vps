@@ -193,7 +193,7 @@ if (file_exists(__DIR__ . '/../includes/navbar.php')) include __DIR__ . '/../inc
                 <div class="modal-actions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
                 <button type="button" id="cancelDeptEdit" class="btn">Cancel</button>
                 <button type="button" id="dept_toggle_active" class="btn" style="min-width:96px;" <?= $canToggle ? '' : 'disabled aria-disabled="true" title="Insufficient permissions"' ?>>Toggle Active</button>
-                <button type="submit" id="saveDeptEdit" class="btn btn-orange" <?= $canEdit ? '' : 'disabled aria-disabled="true" title="Insufficient permissions"' ?>>Save</button>
+                <button type="submit" id="saveDeptEdit" class="btn" <?= $canEdit ? '' : 'disabled aria-disabled="true" title="Insufficient permissions"' ?>>Save</button>
             </div>
         </form>
     </div>

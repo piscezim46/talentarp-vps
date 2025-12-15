@@ -293,6 +293,19 @@ $minHiringDeadline = date('Y-m-d', strtotime('+1 day'));
   box-shadow: 0 0 0 4px rgba(37,99,235,0.08);
   background: #fff;
 }
+/* mimic readonly style for selects that are visually locked but still submit value */
+.modal-input.readonly-like {
+  background: #f3f4f6;
+  color: #6b7280;
+  border: 1px solid #d1d5db;
+  box-shadow: none;
+}
+.modal-input.readonly-like:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 4px rgba(37,99,235,0.08);
+  background: #fff;
+}
 </style>
 
 <?php
@@ -1178,6 +1191,8 @@ if (isset($_GET['created'])) {
     // ensure department becomes editable again when resetting
     if (deptSelectEl) {
       deptSelectEl.disabled = false;
+      // remove any readonly-like marker added when opening defaulted
+      try { deptSelectEl.classList.remove('readonly-like'); deptSelectEl.removeAttribute('data-default-locked'); } catch(e){}
       // optionally clear selection
       try { deptSelectEl.selectedIndex = 0; } catch(e){}
     }
@@ -1207,8 +1222,9 @@ if (isset($_GET['created'])) {
             // set and trigger change to populate teams
             deptSelectEl.value = String(window.USER_DEPARTMENT_ID);
             deptSelectEl.dispatchEvent(new Event('change'));
-            // disable department selection (managers create positions within their own dept)
-            deptSelectEl.disabled = true;
+            // mark department as default-locked visually (keep enabled so its value is submitted)
+            deptSelectEl.classList.add('readonly-like');
+            deptSelectEl.setAttribute('data-default-locked', '1');
           }
         }
         // default team if available (prefer id, then name)

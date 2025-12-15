@@ -403,18 +403,25 @@ document.addEventListener('DOMContentLoaded', function(){
             <div class="app-list">
               <style>
                 /* Relax table widths: let content size naturally, but enforce small widths for selection/ID */
-                .users-table { table-layout: auto; width: 100%; }
+                .users-table { table-layout: auto; width: 100%; border-collapse: collapse; }
                 .users-table th.col-select, .users-table td.col-select { width: 2%; min-width: 28px; }
                 .users-table th.col-id, .users-table td.col-id { width: 3%; min-width: 40px; }
                 /* Allow other columns to flex; wrap long text for readability */
                 .users-table th, .users-table td { white-space: normal; vertical-align: middle; }
                 .users-table td { padding: 8px 10px; }
+
+                /* Scroll container that holds the table rows only; header will stick */
+                .table-container { max-height: 90vh; overflow-y: auto; width: 100%; }
+                /* Make thead sticky so header remains visible while scrolling rows */
+                .users-table thead th { position: sticky; top: 0; z-index: 3; background: #ffffff; backdrop-filter: blur(2px); }
+
                 @media (max-width: 900px) {
                   .users-table th.col-select, .users-table td.col-select { width: 3%; }
                   .users-table th.col-id, .users-table td.col-id { width: 5%; }
                 }
               </style>
-              <table class="users-table table-scroll">
+                    <div class="table-container">
+                    <table class="users-table table-scroll">
       <thead>
         <tr>
           <th class="col-select"><input type="checkbox" id="selectAllApplicants" title="Select all"></th>
@@ -511,6 +518,7 @@ document.addEventListener('DOMContentLoaded', function(){
       <?php endwhile; ?>
         </tbody>
             </table>
+            </div><!-- .table-container -->
           </div><!-- .app-list -->
         </div><!-- .app-layout -->
     </div> 
@@ -734,8 +742,8 @@ document.addEventListener('DOMContentLoaded', function(){
       </div>
 
       <div class="modal-actions">
-        <button type="button" id="cancelCreateApplicant" class="btn btn-primary">Cancel</button>
-        <button type="submit" class="btn primary btn-primary">Create</button>
+        <button type="button" id="cancelCreateApplicant" class="btn">Cancel</button>
+        <button type="submit" class="btn">Create</button>
       </div>
     </form>
   </div>

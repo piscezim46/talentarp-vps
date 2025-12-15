@@ -812,13 +812,42 @@ function renderPositions(range){
       try {
         const anc = ev.target.closest && ev.target.closest('a[href^="applicants.php"], a[href^="view_positions.php"]');
         if (anc) {
-          const href = anc.getAttribute('href') || '';
-          if (href.indexOf('applicants.php') !== -1) {
+          let href = anc.getAttribute('href') || '';
+          const isApplicants = href.indexOf('applicants.php') !== -1;
+          const isPositions = href.indexOf('view_positions.php') !== -1;
+          if (isApplicants) {
             if (!canNavigate('applicants_view', 'Applicants')) { ev.preventDefault(); ev.stopPropagation(); return; }
           }
-          if (href.indexOf('view_positions.php') !== -1) {
+          if (isPositions) {
             if (!canNavigate('positions_view', 'Positions')) { ev.preventDefault(); ev.stopPropagation(); return; }
           }
+
+          // Append active timeframe filters to the target URL so the list honors dashboard interval
+          try {
+            const target = isPositions ? 'positions' : 'applicants';
+            const activeBtn = document.querySelector('.timeframe-btn[data-target="' + target + '"].active');
+            const range = activeBtn ? activeBtn.getAttribute('data-range') : 'today';
+            const today = new Date();
+            function fmt(d){ const y = d.getFullYear(); const m = String(d.getMonth()+1).padStart(2,'0'); const day = String(d.getDate()).padStart(2,'0'); return y+'-'+m+'-'+day; }
+            let start = new Date();
+            if (range === 'today') { start.setHours(0,0,0,0); }
+            else if (range === 'week') { start.setDate(start.getDate() - 7); start.setHours(0,0,0,0); }
+            else if (typeof range === 'string' && range.startsWith('months')) { const parts = range.split(/[-_:]/); const months = parseInt(parts[1],10) || 1; start.setMonth(start.getMonth() - months); start.setHours(0,0,0,0); }
+            else { start.setMonth(start.getMonth() - 1); start.setHours(0,0,0,0); }
+
+            // Build URL relative to current origin so URLSearchParams works with existing queries
+            const u = new URL(href, window.location.origin);
+            if (isPositions) {
+              if (!u.searchParams.has('fCreatedFrom')) u.searchParams.set('fCreatedFrom', fmt(start));
+              if (!u.searchParams.has('fCreatedTo')) u.searchParams.set('fCreatedTo', fmt(today));
+            } else {
+              if (!u.searchParams.has('f-date-from')) u.searchParams.set('f-date-from', fmt(start));
+              if (!u.searchParams.has('f-date-to')) u.searchParams.set('f-date-to', fmt(today));
+            }
+            ev.preventDefault(); ev.stopPropagation();
+            window.location.href = u.pathname + (u.search ? '?' + u.searchParams.toString() : '');
+            return;
+          } catch(e) { /* ignore timeframe attach errors and allow default navigation */ }
         }
       } catch(e) { /* ignore */ }
 
@@ -873,9 +902,16 @@ function renderPositions(range){
         start.setHours(0,0,0,0);
       } else { start.setMonth(start.getMonth() - 1); start.setHours(0,0,0,0); }
       const params = new URLSearchParams();
-      // set created date range so target page can pre-fill created filters
-      params.set('f-date-from', fmt(start));
-      params.set('f-date-to', fmt(today));
+      // set created/date range so target page can pre-fill created filters
+      if (action === 'positions-total' || statusId || dept || team) {
+        // view_positions expects fCreatedFrom / fCreatedTo
+        params.set('fCreatedFrom', fmt(start));
+        params.set('fCreatedTo', fmt(today));
+      } else {
+        // applicants page expects f-date-from / f-date-to
+        params.set('f-date-from', fmt(start));
+        params.set('f-date-to', fmt(today));
+      }
 
       if (appStatus) {
         // navigate to applicants page with status filter
@@ -1002,19 +1038,28 @@ function renderApplicants(range){
 
   // Compute per-status counts for the filtered rows and update status cards + progress bar
   (function updateStatusAndProgress(){
-    const counts = { screen:0, shortlist:0, hr:0, mgr:0, rejected:0, hired:0 };
+    // Keep legacy grouped counts for the progress bar (preserve previous UX)
+    const grouped = { screen:0, shortlist:0, hr:0, mgr:0, rejected:0, hired:0 };
+    // Also compute exact counts per status id/name so the dashboard shows real statuses
+    const exactCounts = {}; // key = status_id (string) or lower-case status_name when id missing
     rows.forEach(r=>{
       const s = (r.status_name || '').toString().toLowerCase();
-      if (s.includes('hire')) counts.hired++;
-      else if (s.includes('reject')) counts.rejected++;
-      else if (s.includes('manager interview') || s.includes('manager_interview') || s.includes('manager')) counts.mgr++;
-      else if (s.includes('hr interview') || s.includes('hr_interview') || (s.includes('hr') && s.includes('interview'))) counts.hr++;
-      else if (s.includes('shortlist') || s.includes('shortlisted')) counts.shortlist++;
-      else if (s.includes('screen') || s === '') counts.screen++;
-      else counts.screen++; // default bucket
+      if (s.includes('hire')) grouped.hired++;
+      else if (s.includes('reject')) grouped.rejected++;
+      else if (s.includes('manager interview') || s.includes('manager_interview') || s.includes('manager')) grouped.mgr++;
+      else if (s.includes('hr interview') || s.includes('hr_interview') || (s.includes('hr') && s.includes('interview'))) grouped.hr++;
+      else if (s.includes('shortlist') || s.includes('shortlisted')) grouped.shortlist++;
+      else if (s.includes('screen') || s === '') grouped.screen++;
+      else grouped.screen++;
+
+      // exact counts
+      let key = '';
+      if (r.status_id !== undefined && r.status_id !== null && String(r.status_id) !== '') key = String(r.status_id);
+      else key = s || '__none__';
+      exactCounts[key] = (exactCounts[key] || 0) + 1;
     });
 
-    // Update status DOM elements
+    // Update legacy small counters (keep these for backward compatibility)
     const elMap = {
       screen: document.getElementById('status-screening'),
       shortlist: document.getElementById('status-shortlisted'),
@@ -1023,31 +1068,37 @@ function renderApplicants(range){
       rejected: document.getElementById('status-rejected'),
       hired: document.getElementById('status-hired')
     };
-    Object.keys(elMap).forEach(k=>{ if (elMap[k]) elMap[k].textContent = String(counts[k] || 0); });
+    Object.keys(elMap).forEach(k=>{ if (elMap[k]) elMap[k].textContent = String(grouped[k] || 0); });
 
-    // Update progress bar segments (percent of filtered rows)
-    // Rebuild the applicants-by-status mini-cards to only show counts > 0
+    // Rebuild the applicants-by-status mini-cards using actual configured statuses
     try {
       const statusStack = document.querySelector('.status-stack');
       if (statusStack) {
-        const defs = [
-          { key: 'screen', label: 'Screening Pending', data: 'screening-pending', cls: 'val-primary' },
-          { key: 'shortlist', label: 'Shortlisted', data: 'shortlisted', cls: 'val-purple' },
-          { key: 'hr', label: 'HR Interviews', data: 'hr-interviews', cls: 'val-indigo' },
-          { key: 'mgr', label: 'Manager Interviews', data: 'manager-interviews', cls: 'val-teal' },
-          { key: 'rejected', label: 'Rejected', data: 'rejected', cls: 'val-danger' },
-          { key: 'hired', label: 'Hired', data: 'hired', cls: 'val-success' }
-        ];
-        const cards = defs.reduce((acc,d)=>{
-          const v = counts[d.key] || 0;
-          if (v > 0) {
-            acc.push('<div class="status-card clickable" data-app-status="'+encodeURIComponent(d.data)+'"><div class="label">'+escapeHtml(d.label)+'</div><div class="value '+d.cls+'">'+String(v)+'</div></div>');
+        const statusArr = Array.isArray(DASH_APPLICANT_STATUSES) ? DASH_APPLICANT_STATUSES : [];
+        const cards = [];
+        let knownSum = 0;
+        statusArr.forEach(s=>{
+          const sid = s && s.status_id !== undefined ? String(s.status_id) : null;
+          const nameKey = (s && s.status_name) ? String(s.status_name).toLowerCase() : null;
+          const cnt = (sid && exactCounts[sid]) ? exactCounts[sid] : (nameKey && exactCounts[nameKey] ? exactCounts[nameKey] : 0);
+          knownSum += cnt;
+          if (cnt > 0) {
+            const color = (s && s.status_color) ? s.status_color : '#6b7280';
+            const textColor = contrastColor(color || '#ffffff');
+            cards.push('<div class="status-card clickable" data-app-status="'+encodeURIComponent(sid || nameKey || '')+'"><div class="label">'+escapeHtml(s.status_name || (nameKey||'Unnamed'))+'</div><div class="value" style="background:'+escapeHtml(color)+';color:'+escapeHtml(textColor)+'">'+String(cnt)+'</div></div>');
           }
-          return acc;
-        }, []);
+        });
+        // Any remaining exactCounts that didn't match a configured/active status go into Other
+        const otherCount = Object.keys(exactCounts).reduce((sum,k)=>{
+          const matched = statusArr.some(s=> String(s.status_id) === k || ((s.status_name||'').toString().toLowerCase() === k));
+          return matched ? sum : sum + (exactCounts[k] || 0);
+        }, 0);
+        if (otherCount > 0) cards.push('<div class="status-card"><div class="label">Other / Inactive</div><div class="value">'+String(otherCount)+'</div></div>');
         statusStack.innerHTML = cards.length ? cards.join('') : '<div class="empty">No applicants for this range.</div>';
       }
     } catch(e){ console.warn('status-stack rebuild failed', e); }
+
+    // Update progress bar segments (percent of filtered rows) using legacy grouped counts
     const total = rows.length;
     const segMap = {
       screen: document.getElementById('progress-screen'),
@@ -1063,7 +1114,7 @@ function renderApplicants(range){
       Object.keys(segMap).forEach(k=>{
         const el = segMap[k];
         if (!el) return;
-        const pct = Math.round((counts[k] || 0) / total * 100);
+        const pct = Math.round((grouped[k] || 0) / total * 100);
         el.style.width = pct + '%';
         el.title = (k.charAt(0).toUpperCase() + k.slice(1)) + ' ' + String(pct) + '%';
       });

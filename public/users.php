@@ -1475,6 +1475,13 @@ function parseDateFromCell(text){ // try to parse YYYY-MM-DD or fallback
                     try { const val = parseInt((document.getElementById('e_password_expiry') || {}).value || '', 10); if (!isNaN(val) && val > 0) payload.password_expiration_days = val; } catch(e) {}
                     // include scope when saving
                     try { const sc = (document.getElementById('e_scope') || {}).value || ''; if (sc) payload.scope = sc; } catch(e) {}
+                    // Prevent submitting when a department is chosen but no team selected
+                    try {
+                        if ((payload.department_id || 0) > 0 && (payload.team_id || 0) === 0) {
+                            try { if (window.Notify && typeof window.Notify.push === 'function') Notify.push({ from: 'Users', message: 'Please select a team when assigning a department', color: '#f59e0b' }); } catch(e){}
+                            return;
+                        }
+                    } catch(e) {}
                         // if no changes compared to original, notify and skip
                         try {
                             if (E_ORIGINAL) {

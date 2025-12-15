@@ -161,8 +161,8 @@ ob_start();
 
     /* Skills tag input */
     .skills-tags { display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 8px 0; }
-    .skill-chip { background:#0b1220; border:1px solid rgba(255,255,255,0.04); padding:6px 8px; border-radius:999px; color:#fff; font-size:13px; display:inline-flex; align-items:center; gap:8px; }
-    .skill-chip .remove { background:transparent; border:0; color:#9aa4b2; cursor:pointer; font-weight:700; padding:0 4px; }
+    .skill-chip { background: whitesmoke; border:1px solid rgba(255,255,255,0.04); padding:6px 8px; border-radius:999px; color:white; font-size:13px; display:inline-flex; align-items:center; gap:8px; }
+    .remove { background:transparent; border:0; color:#9aa4b2; cursor:pointer; font-weight:700; padding:0 4px; }
     #ap_skills_input { width:100%; padding:8px; border-radius:8px; background:#0f1720; color:#fff; border:1px solid rgba(255,255,255,0.04); box-sizing:border-box; }
 
      .app-profile .actions, .app-details .actions { display:flex; gap:8px; justify-content:flex-end; margin-top:8px; }
@@ -850,6 +850,11 @@ ob_start();
       statusBtns.forEach(b=>{ try{ b.disabled = disable; b.setAttribute('aria-disabled', String(disable)); b.style.opacity = disable ? '0.45' : ''; b.style.pointerEvents = disable ? 'none' : ''; b.title = disable ? 'Disabled while editing' : (b.title || ''); }catch(e){} });
       const sched = document.getElementById('btnScheduleInterview');
       if (sched) { try{ sched.disabled = disable; sched.setAttribute('aria-disabled', String(disable)); sched.style.opacity = disable ? '0.45' : ''; sched.title = disable ? 'Disabled while editing' : (sched.title || ''); }catch(e){} }
+      // enable/disable skill remove buttons depending on edit mode
+      try {
+        const skillRemoves = document.querySelectorAll('#ap_skills_tags .remove');
+        skillRemoves.forEach(b => { try { b.disabled = !__applicantUnsaved; b.setAttribute('aria-disabled', String(!__applicantUnsaved)); b.style.opacity = !__applicantUnsaved ? '0.45' : ''; b.style.pointerEvents = !__applicantUnsaved ? 'none' : ''; b.title = !__applicantUnsaved ? 'Enable edit mode to remove skills' : (b.title || 'Remove skill'); } catch(e){} });
+      } catch(e) {}
     }catch(e){}
   }
 
@@ -927,13 +932,75 @@ ob_start();
   let __skillsTags = [];
   function escapeHtml(str){ return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
   function renderSkillsTagsFromValue(v){ try{ const container = document.getElementById('ap_skills_tags'); const hidden = document.getElementById('ap_skills'); __skillsTags = []; if (!container) return; const raw = (typeof v === 'undefined' || v === null) ? (hidden ? hidden.value : '') : v; if (raw && raw.length) { raw.split(',').map(s=>s.trim()).filter(Boolean).forEach(s=>{ if (!__skillsTags.some(x=>x.toLowerCase()===s.toLowerCase())) __skillsTags.push(s); }); } updateSkillsUI(); }catch(e){console.warn('renderSkillsTagsFromValue failed',e);} }
-  function updateSkillsUI(){ const container = document.getElementById('ap_skills_tags'); const hidden = document.getElementById('ap_skills'); const input = document.getElementById('ap_skills_input'); if (!container || !hidden) return; container.innerHTML = ''; __skillsTags.forEach((s,i)=>{ const chip = document.createElement('span'); chip.className = 'skill-chip'; const text = document.createElement('span'); text.className='skill-text'; text.textContent = s; const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'remove'; btn.setAttribute('data-index', String(i)); btn.innerHTML = '&times;'; btn.addEventListener('click', function(){ removeSkillAt(i); }); chip.appendChild(text); chip.appendChild(btn); container.appendChild(chip); }); hidden.value = __skillsTags.join(', '); if (input) { input.placeholder = __skillsTags.length ? 'Add another skill and press Enter' : 'Add a skill and press Enter or paste comma-separated'; }
+  function updateSkillsUI(){
+    const container = document.getElementById('ap_skills_tags');
+    const hidden = document.getElementById('ap_skills');
+    const input = document.getElementById('ap_skills_input');
+    if (!container || !hidden) return;
+    container.innerHTML = '';
+    __skillsTags.forEach((s,i)=>{
+      const chip = document.createElement('span'); chip.className = 'skill-chip';
+      const text = document.createElement('span'); text.className='skill-text'; text.textContent = s;
+      const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'remove'; btn.setAttribute('data-index', String(i)); btn.innerHTML = '&times;';
+      try {
+        // initial disabled state depends on whether we're in edit mode
+        btn.disabled = !window.__applicantUnsaved;
+        btn.setAttribute('aria-disabled', String(!window.__applicantUnsaved));
+        btn.style.opacity = !window.__applicantUnsaved ? '0.45' : '';
+        btn.style.pointerEvents = !window.__applicantUnsaved ? 'none' : '';
+        if (!window.__applicantUnsaved) btn.title = 'Enable edit mode to remove skills';
+      } catch(e) {}
+
+      btn.addEventListener('click', function(ev){
+        try { ev && ev.preventDefault && ev.preventDefault(); } catch(e){}
+        // guard: only allow removal when in edit mode
+        if (!window.__applicantUnsaved) {
+          try { showInlineNotice && showInlineNotice('Enable edit mode to remove skills', 2000); } catch(e){}
+          return;
+        }
+        removeSkillAt(i);
+      });
+
+      chip.appendChild(text); chip.appendChild(btn); container.appendChild(chip);
+    });
+    hidden.value = __skillsTags.join(', ');
+    if (input) { input.placeholder = __skillsTags.length ? 'Add another skill and press Enter' : 'Add a skill and press Enter or paste comma-separated'; }
   }
   function addSkillsFromString(s){ if (!s) return; const parts = s.split(',').map(x=>x.trim()).filter(Boolean); parts.forEach(p=>{ if (!__skillsTags.some(x=>x.toLowerCase()===p.toLowerCase())) __skillsTags.push(p); }); updateSkillsUI(); }
   function removeSkillAt(i){ if (typeof i !== 'number') return; __skillsTags.splice(i,1); updateSkillsUI(); }
 
   // Wire input events
-  (function(){ try{ const input = document.getElementById('ap_skills_input'); const container = document.getElementById('ap_skills_tags'); if (!input || !container) return; input.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); const v = input.value.trim(); if (!v) return; addSkillsFromString(v); input.value = ''; } }); input.addEventListener('paste', function(e){ setTimeout(()=>{ const v = input.value || ''; if (v.includes(',')) { addSkillsFromString(v); input.value = ''; } }, 5); }); container.addEventListener('click', function(e){ const btn = e.target && e.target.closest && e.target.closest('.remove'); if (btn){ const idx = parseInt(btn.getAttribute('data-index'),10); if (!Number.isNaN(idx)) removeSkillAt(idx); } }); }catch(e){console.warn('skills wiring failed',e);} })();
+  (function(){
+    try{
+      const input = document.getElementById('ap_skills_input');
+      const container = document.getElementById('ap_skills_tags');
+      if (!input || !container) return;
+      input.addEventListener('keydown', function(e){
+        if (e.key === 'Enter'){
+          e.preventDefault();
+          const v = input.value.trim();
+          if (!v) return;
+          addSkillsFromString(v);
+          input.value = '';
+        }
+      });
+      input.addEventListener('paste', function(e){
+        setTimeout(()=>{
+          const v = input.value || '';
+          if (v.includes(',')) { addSkillsFromString(v); input.value = ''; }
+        }, 5);
+      });
+      container.addEventListener('click', function(e){
+        const btn = e.target && e.target.closest && e.target.closest('.remove');
+        if (btn){
+          const idx = parseInt(btn.getAttribute('data-index'),10);
+          if (Number.isNaN(idx)) return;
+          // only allow removal when in edit mode
+          if (!window.__applicantUnsaved) { try { showInlineNotice && showInlineNotice('Enable edit mode to remove skills', 2000); } catch(e){} return; }
+          removeSkillAt(idx);
+        }
+      });
+    }catch(e){console.warn('skills wiring failed',e);} })();
   try{ const hid = document.getElementById('ap_skills'); const init = (hid && hid.value) ? hid.value : (document.getElementById('ap_skills_tags') && document.getElementById('ap_skills_tags').dataset.initial) || ''; renderSkillsTagsFromValue(init); }catch(e){}
   let detailsSnapshot = null;
 
@@ -1644,7 +1711,24 @@ ob_start();
         // After the fragment loads, ensure the Applicants details are closed and
         // move the close X to the right and disable status-change buttons.
         try {
+          // Ensure position viewer is topmost above the applicant modal in all environments
           const ov = document.getElementById('posViewerModal');
+          const ticketEl = document.getElementById('applicantTicket');
+          const applicantOverlay = ticketEl && ticketEl.closest && ticketEl.closest('.modal-overlay');
+          let origApplicantZ = '';
+          try {
+            if (applicantOverlay) {
+              origApplicantZ = applicantOverlay.style.zIndex || '';
+              applicantOverlay.style.zIndex = '15000';
+            }
+            if (ov) {
+              // bring the pos viewer to the front and ensure it has a higher z-index
+              ov.style.zIndex = '20000';
+              // append to body to place it last in DOM order
+              try { document.body.appendChild(ov); } catch(e) {}
+            }
+          } catch(e) {}
+
           if (ov) {
             const content = ov.querySelector('#posViewerContent');
             if (content) {
@@ -1679,8 +1763,22 @@ ob_start();
                 const preventer = function(ev){ const t = ev.target && ev.target.closest && ev.target.closest('.status-action-btn, .status-action'); if (!t) return; if (window.__openedFromApplicant) { ev.stopImmediatePropagation(); ev.preventDefault(); } };
                 ov.addEventListener('click', preventer, true);
                 document.addEventListener('click', preventer, true);
-                // Clean up flag when modal closed: listen for its close X
-                const cleanup = function(ev){ if (ev && ev.target && ev.target.closest && ev.target.closest('.modal-close-x')) { try { window.__openedFromApplicant = false; ov.removeEventListener('click', preventer, true); document.removeEventListener('click', preventer, true); ov.removeEventListener('click', cleanup, true); } catch(e){} } };
+
+                // Clean up when the pos viewer closes: restore applicant overlay z-index and remove listeners
+                const cleanup = function(ev){
+                  try {
+                    const isClose = ev && ev.target && ev.target.closest && ev.target.closest('.modal-close-x');
+                    if (!isClose) return;
+                    window.__openedFromApplicant = false;
+                    try { ov.removeEventListener('click', preventer, true); } catch(e){}
+                    try { document.removeEventListener('click', preventer, true); } catch(e){}
+                    try { ov.removeEventListener('click', cleanup, true); } catch(e){}
+                    // restore applicant overlay z-index
+                    if (applicantOverlay) {
+                      try { applicantOverlay.style.zIndex = origApplicantZ || ''; } catch(e){}
+                    }
+                  } catch(e) { /* ignore cleanup errors */ }
+                };
                 ov.addEventListener('click', cleanup, true);
               } catch (e) {}
             }

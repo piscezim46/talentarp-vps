@@ -62,10 +62,10 @@ if (isset($_SESSION['user']) && is_array($_SESSION['user']) && isset($_SESSION['
   $currentUserId = (int)$_SESSION['id'];
 }
 
-// A user can edit only when the position is in 'Open' (status_id === 1)
-// and the current user is the creator (created_by matches the user's id).
+// A user can edit when the position is in 'Open' (status_id === 1)
+// or in 'Re-open' (status_id === 12), and the current user is the creator.
 $isCreator = ($currentUserId > 0) && ((int)$pos['created_by'] === $currentUserId);
-$inCreatedStatus = ((int)$pos['status_id'] === 1);
+$inCreatedStatus = ((int)$pos['status_id'] === 1) || ((int)$pos['status_id'] === 12);
 $canEdit = $inCreatedStatus && $isCreator;
 
 $transitions = [];
